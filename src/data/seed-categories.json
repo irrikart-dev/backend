@@ -1,0 +1,68 @@
+[
+  {
+    "id": "sprinklers",
+    "name": "Sprinklers",
+    "blurb": "Micro & popup sprinklers engineered for even water distribution.",
+    "image": "assets/mock/products/img001-all-600x600.webp"
+  },
+  {
+    "id": "filters",
+    "name": "Filters",
+    "blurb": "Screen & disc filtration to protect your system from clogging.",
+    "image": "assets/mock/products/img002-WEbp-1-600x600.webp"
+  },
+  {
+    "id": "control-valves",
+    "name": "Control Valves",
+    "blurb": "Ball valves for precise manual flow control across the field.",
+    "image": "assets/mock/products/img003-1-1-600x600.jpg"
+  },
+  {
+    "id": "safety-valves",
+    "name": "Safety Valves",
+    "blurb": "Air release & pressure valves that protect pipeline integrity.",
+    "image": "assets/mock/products/img004-WBP-1-600x600.webp"
+  },
+  {
+    "id": "pipes-tubes",
+    "name": "Pipes & Tubes",
+    "blurb": "Lateral pipes, driplines and micro tubes for drip networks.",
+    "image": "assets/mock/products/img005-WEBP-4-600x600.webp"
+  },
+  {
+    "id": "mister-foggers",
+    "name": "Mister & Foggers",
+    "blurb": "Fine-mist nozzles for cooling, humidity & dust suppression.",
+    "image": "assets/mock/products/img006-HF-600x600.webp"
+  },
+  {
+    "id": "home-irrigation",
+    "name": "Home Irrigation",
+    "blurb": "Tap timers and easy-set kits for kitchen gardens & terraces.",
+    "image": "assets/mock/products/img007-1-2-600x600.jpg"
+  },
+  {
+    "id": "landscape-irrigation",
+    "name": "Landscape Irrigation",
+    "blurb": "Quick couplers, valve boxes & swing joints for landscaping.",
+    "image": "assets/mock/products/img008-webp-6-600x600.webp"
+  },
+  {
+    "id": "saddles",
+    "name": "Saddles",
+    "blurb": "Premium service saddles for reliable pipeline tapping.",
+    "image": "assets/mock/products/img009-Untitled-design-2-600x600.jpg"
+  },
+  {
+    "id": "kits",
+    "name": "Kits",
+    "blurb": "Ready-to-install drip kits for farms of every size.",
+    "image": "assets/mock/products/img010-1-600x600.webp"
+  },
+  {
+    "id": "other-products",
+    "name": "Other Products",
+    "blurb": "Drip fittings, emitters, bubblers & flow accessories.",
+    "image": "assets/mock/products/img011-Web-p2-600x600.webp"
+  }
+]

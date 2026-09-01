@@ -1,0 +1,1697 @@
+[
+  {
+    "slug": "arrow-dripper-assembly",
+    "name": "Arrow Dripper Assembly",
+    "category": "sprinklers",
+    "image": "assets/mock/products/img012-WEB-P-2-600x600.webp",
+    "tagline": "Precision drip assembly for row crops",
+    "description": "A compact dripper assembly designed for reliable point-source irrigation in row crops and orchards, delivering consistent flow with minimal maintenance.",
+    "features": [
+      "Anti-clog arrow design",
+      "Consistent discharge across pressure range",
+      "UV-stabilised plastic body",
+      "Easy field installation"
+    ],
+    "specs": [
+      {
+        "label": "Flow Rate",
+        "value": "2 – 8 LPH"
+      },
+      {
+        "label": "Material",
+        "value": "UV Stabilised Polypropylene"
+      },
+      {
+        "label": "Operating Pressure",
+        "value": "0.5 – 3.5 bar"
+      },
+      {
+        "label": "Connection",
+        "value": "4mm Micro Tube"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 1565,
+    "price": 1389,
+    "rating": 4.5,
+    "reviewCount": 104,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "hans-mini",
+    "name": "Hans™ (Mini)",
+    "category": "sprinklers",
+    "image": "assets/mock/products/img013-Web-p-600x600.webp",
+    "tagline": "Compact micro sprinkler for close-spaced crops",
+    "description": "The Hans Mini micro-sprinkler is built for smaller plots and nurseries where a gentle, evenly spread water pattern is essential for young plants.",
+    "features": [
+      "Uniform 360° water spread",
+      "Low flow, water-efficient design",
+      "Compact footprint",
+      "Snap-fit stake mounting"
+    ],
+    "specs": [
+      {
+        "label": "Flow Rate",
+        "value": "35 – 70 LPH"
+      },
+      {
+        "label": "Radius",
+        "value": "1.2 – 2.0 m"
+      },
+      {
+        "label": "Pressure Rating",
+        "value": "1.0 – 2.5 bar"
+      },
+      {
+        "label": "Material",
+        "value": "Engineering Plastic"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 557,
+    "price": 489,
+    "rating": 4.4,
+    "reviewCount": 228,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "mini-mikro-sprinkler",
+    "name": "Mini Mikro",
+    "category": "sprinklers",
+    "image": "assets/mock/products/img014-web-p-x-2-600x600.webp",
+    "tagline": "Versatile micro sprinkler for orchards & lawns",
+    "description": "A rugged micro sprinkler suited for orchard floors and lawns, providing broad, even coverage with minimal fogging or drift loss.",
+    "features": [
+      "Anti-drain check valve compatible",
+      "Wide coverage diameter",
+      "Rotating deflector",
+      "Durable UV-resistant build"
+    ],
+    "specs": [
+      {
+        "label": "Flow Rate",
+        "value": "60 – 120 LPH"
+      },
+      {
+        "label": "Radius",
+        "value": "2.0 – 3.5 m"
+      },
+      {
+        "label": "Pressure Rating",
+        "value": "1.0 – 3.0 bar"
+      },
+      {
+        "label": "Connection",
+        "value": "Barb / Threaded"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 1364,
+    "price": 1209,
+    "rating": 4.6,
+    "reviewCount": 10,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "irrituff-sprinkler",
+    "name": "Irrituff Sprinkler",
+    "category": "sprinklers",
+    "image": "assets/mock/products/img001-all-600x600.webp",
+    "tagline": "Heavy-duty sprinkler built for field conditions",
+    "description": "Irrituff is engineered for demanding field conditions where durability and consistent precipitation matter most across large plots.",
+    "features": [
+      "Impact-resistant housing",
+      "Consistent precipitation rate",
+      "Field-proven durability",
+      "Low maintenance"
+    ],
+    "specs": [
+      {
+        "label": "Flow Rate",
+        "value": "150 – 400 LPH"
+      },
+      {
+        "label": "Radius",
+        "value": "4 – 7 m"
+      },
+      {
+        "label": "Pressure Rating",
+        "value": "1.5 – 3.5 bar"
+      },
+      {
+        "label": "Material",
+        "value": "High-Impact Polymer"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 1744,
+    "price": 1549,
+    "rating": 4.4,
+    "reviewCount": 190,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "irrijet-micro-sprinkler",
+    "name": "Irrijet Sprinkler",
+    "category": "sprinklers",
+    "image": "assets/mock/products/img015-bot-600x600.webp",
+    "tagline": "Jet-pattern micro sprinkler for orchard rows",
+    "description": "Irrijet delivers a fan-jet spray pattern ideal for orchard rows and bedded crops, balancing throw distance with fine droplet size.",
+    "features": [
+      "Fan jet spray pattern",
+      "Anti-clog nozzle",
+      "Adjustable flow",
+      "Corrosion-resistant components"
+    ],
+    "specs": [
+      {
+        "label": "Flow Rate",
+        "value": "40 – 90 LPH"
+      },
+      {
+        "label": "Radius",
+        "value": "1.5 – 2.8 m"
+      },
+      {
+        "label": "Pressure Rating",
+        "value": "1.0 – 2.5 bar"
+      },
+      {
+        "label": "Material",
+        "value": "PP + PC Blend"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 1935,
+    "price": 1719,
+    "rating": 4.4,
+    "reviewCount": 42,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "hans-plastic",
+    "name": "Hans™ Plastic Sprinkler",
+    "category": "sprinklers",
+    "image": "assets/mock/products/img016-Plastic-webp-600x600.webp",
+    "tagline": "All-plastic sprinkler for cost-effective coverage",
+    "description": "A fully plastic-bodied variant of the Hans series, offering budget-friendly, corrosion-free irrigation coverage for medium plots.",
+    "features": [
+      "Fully corrosion-proof",
+      "Lightweight body",
+      "Even radial spread",
+      "Simple stake-mount install"
+    ],
+    "specs": [
+      {
+        "label": "Flow Rate",
+        "value": "45 – 95 LPH"
+      },
+      {
+        "label": "Radius",
+        "value": "1.8 – 3.0 m"
+      },
+      {
+        "label": "Pressure Rating",
+        "value": "1.0 – 2.5 bar"
+      },
+      {
+        "label": "Material",
+        "value": "Engineering Plastic"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 2181,
+    "price": 1939,
+    "rating": 4.2,
+    "reviewCount": 91,
+    "inStock": false,
+    "featured": false
+  },
+  {
+    "slug": "winkler",
+    "name": "Winkler",
+    "category": "sprinklers",
+    "image": "assets/mock/products/img017-WEBp-2-scaled.webp",
+    "tagline": "Flagship rotary sprinkler, our top seller",
+    "description": "Winkler is My Irigacio World's flagship rotary sprinkler — a proven, high-uniformity performer trusted across thousands of acres for consistent matched precipitation.",
+    "features": [
+      "High distribution uniformity",
+      "Gear-driven rotation",
+      "Wide radius adjustability",
+      "Low-pressure operation"
+    ],
+    "specs": [
+      {
+        "label": "Flow Rate",
+        "value": "0.9 – 5.2 GPM"
+      },
+      {
+        "label": "Radius",
+        "value": "9 – 15 m"
+      },
+      {
+        "label": "Pressure Rating",
+        "value": "2.0 – 4.5 bar"
+      },
+      {
+        "label": "Arc Adjustment",
+        "value": "40° – 360°"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 1218,
+    "price": 1079,
+    "rating": 4.8,
+    "reviewCount": 157,
+    "inStock": true,
+    "featured": true
+  },
+  {
+    "slug": "rps-select",
+    "name": "RPS Select",
+    "category": "sprinklers",
+    "image": "assets/mock/products/img018-rps-select-pr.jpg",
+    "tagline": "Gear-driven rotor with 4 selectable nozzles",
+    "description": "RPS™ Select offers four pre-installed nozzles with greater water efficiency, allowing installation convenience and matched precipitation without hassles. It is the first gear-driven sprinkler that makes matched precipitation fast and easy, without changing nozzles in the field.",
+    "features": [
+      "Four Built-in Selectable Nozzles: Nozzles #1 through #4 match arc settings 90° through 360°",
+      "Adjustable Arc (40°-360°); all adjustments made from the top — no special tools needed",
+      "Matched Precipitation Rates when nozzle setting matched to arc",
+      "Precision-engineered nozzles ensure water-saving efficiency",
+      "Proven water-lubricated gear-drive design",
+      "Universal riser assembly interchangeable with most popular irrigation rotors"
+    ],
+    "specs": [
+      {
+        "label": "Inlet",
+        "value": "3/4\" (1.9 cm) Threaded NPT"
+      },
+      {
+        "label": "Arc Adjustment Range",
+        "value": "40° – 360°"
+      },
+      {
+        "label": "Flow Range",
+        "value": "1.3 – 6.8 GPM (4.9 – 25.8 LPM)"
+      },
+      {
+        "label": "Pressure Rating",
+        "value": "30 – 70 PSI (2.1 – 4.8 bar)"
+      },
+      {
+        "label": "Precipitation Rate",
+        "value": "0.23 – 0.71 in/hr (6 – 20 mm/hr)"
+      },
+      {
+        "label": "Overall Height",
+        "value": "7-3/8\" (19.7 cm), Popped Down"
+      },
+      {
+        "label": "Recommended Spacing",
+        "value": "31′ – 44′ (9.1 – 13.4 m)"
+      },
+      {
+        "label": "Radius",
+        "value": "33′ – 46′ (10 – 14 m)"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 1823,
+    "price": 1619,
+    "rating": 4.2,
+    "reviewCount": 60,
+    "inStock": true,
+    "featured": true
+  },
+  {
+    "slug": "automatic-disc-filter",
+    "name": "Automatic Disc Filter",
+    "category": "filters",
+    "image": "assets/mock/products/img002-WEbp-1-600x600.webp",
+    "tagline": "Self-flushing filtration for large systems",
+    "description": "Automated backwash disc filtration engineered to keep large drip and sprinkler systems free of suspended solids with minimal operator intervention.",
+    "features": [
+      "Automatic self-cleaning cycle",
+      "High dirt-holding capacity",
+      "Minimal pressure loss",
+      "Suitable for surface & bore water"
+    ],
+    "specs": [
+      {
+        "label": "Filtration Degree",
+        "value": "120 Mesh"
+      },
+      {
+        "label": "Flow Rate",
+        "value": "Up to 60 m³/hr"
+      },
+      {
+        "label": "Max Pressure",
+        "value": "8 bar"
+      },
+      {
+        "label": "Body Material",
+        "value": "Reinforced Polymer"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 1005,
+    "price": 889,
+    "rating": 4.7,
+    "reviewCount": 184,
+    "inStock": true,
+    "featured": true
+  },
+  {
+    "slug": "t-type-disc-filter",
+    "name": "T-Type Disc Filter 1.5″",
+    "category": "filters",
+    "image": "assets/mock/products/img019-WEBP-1-7-600x600.webp",
+    "tagline": "Compact disc filtration for drip lines",
+    "description": "T-type disc filters offer superior filtration for organic and inorganic contaminants, protecting emitters and micro sprinklers from clogging.",
+    "features": [
+      "Stacked-disc filtration media",
+      "Easy-open T-body for cleaning",
+      "Corrosion-resistant housing",
+      "Ideal for drip irrigation"
+    ],
+    "specs": [
+      {
+        "label": "Size",
+        "value": "1.5\" BSP"
+      },
+      {
+        "label": "Filtration Degree",
+        "value": "130 Mesh"
+      },
+      {
+        "label": "Max Flow",
+        "value": "20 m³/hr"
+      },
+      {
+        "label": "Max Pressure",
+        "value": "8 bar"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 7109,
+    "price": 6339,
+    "rating": 4.3,
+    "reviewCount": 145,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "t-type-screen-filter",
+    "name": "T-Type Screen Filter 1.5″",
+    "category": "filters",
+    "image": "assets/mock/products/img020-web-p-7-600x600.webp",
+    "tagline": "Screen filtration for sand-free water sources",
+    "description": "A robust screen filter for pre-filtering irrigation water sourced from tube wells and tanks, protecting downstream drip and sprinkler components.",
+    "features": [
+      "Stainless-steel screen element",
+      "Low maintenance design",
+      "High flow capacity",
+      "Simple field cleaning"
+    ],
+    "specs": [
+      {
+        "label": "Size",
+        "value": "1.5\" BSP"
+      },
+      {
+        "label": "Filtration Degree",
+        "value": "100 Mesh"
+      },
+      {
+        "label": "Max Flow",
+        "value": "22 m³/hr"
+      },
+      {
+        "label": "Max Pressure",
+        "value": "8 bar"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 5261,
+    "price": 4689,
+    "rating": 4.5,
+    "reviewCount": 237,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "y-type-disc-filter",
+    "name": "Y-Type Disc Filter",
+    "category": "filters",
+    "image": "assets/mock/products/img021-Untitled-design-31-1-600x600.jpg",
+    "tagline": "Compact inline filtration, easy to install",
+    "description": "The Y-Type disc filter's slim inline profile makes it easy to fit into tight pipeline runs while still delivering dependable disc filtration.",
+    "features": [
+      "Slim Y-shaped profile",
+      "Stacked disc cartridge",
+      "Corrosion-resistant body",
+      "Quick cartridge access"
+    ],
+    "specs": [
+      {
+        "label": "Size",
+        "value": "1\" – 2\" BSP"
+      },
+      {
+        "label": "Filtration Degree",
+        "value": "120 Mesh"
+      },
+      {
+        "label": "Max Flow",
+        "value": "18 m³/hr"
+      },
+      {
+        "label": "Max Pressure",
+        "value": "8 bar"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 7109,
+    "price": 6339,
+    "rating": 4.8,
+    "reviewCount": 150,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "double-union-ball-valve",
+    "name": "Double Union Ball Valve",
+    "category": "control-valves",
+    "image": "assets/mock/products/img003-1-1-600x600.jpg",
+    "tagline": "Easy-service shutoff valve for pipelines",
+    "description": "The double union design allows the valve body to be removed from the line without disturbing pipe connections, simplifying maintenance.",
+    "features": [
+      "Double union for easy removal",
+      "Full-port ball for minimal head loss",
+      "PTFE seats for tight shutoff",
+      "UV-stabilised PVC body"
+    ],
+    "specs": [
+      {
+        "label": "Size Range",
+        "value": "1/2\" – 3\""
+      },
+      {
+        "label": "Max Pressure",
+        "value": "10 bar"
+      },
+      {
+        "label": "Body Material",
+        "value": "UPVC"
+      },
+      {
+        "label": "Seal",
+        "value": "PTFE / EPDM"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 501,
+    "price": 439,
+    "rating": 4.7,
+    "reviewCount": 234,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "single-union-ball-valve",
+    "name": "Single Union Ball Valve",
+    "category": "control-valves",
+    "image": "assets/mock/products/img022-2-2-600x600.jpg",
+    "tagline": "Reliable on/off control for laterals",
+    "description": "A cost-effective single-union ball valve for sectional on/off control across drip and sprinkler laterals.",
+    "features": [
+      "Compact single-union body",
+      "Smooth quarter-turn operation",
+      "Chemical-resistant construction",
+      "Leak-free shutoff"
+    ],
+    "specs": [
+      {
+        "label": "Size Range",
+        "value": "1/2\" – 2\""
+      },
+      {
+        "label": "Max Pressure",
+        "value": "10 bar"
+      },
+      {
+        "label": "Body Material",
+        "value": "UPVC"
+      },
+      {
+        "label": "Seal",
+        "value": "PTFE / EPDM"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 501,
+    "price": 439,
+    "rating": 4.1,
+    "reviewCount": 236,
+    "inStock": false,
+    "featured": false
+  },
+  {
+    "slug": "premium-air-release-valve",
+    "name": "Premium Air Release Valve",
+    "category": "safety-valves",
+    "image": "assets/mock/products/img004-WBP-1-600x600.webp",
+    "tagline": "Protects pipelines from air-lock damage",
+    "description": "Automatically vents trapped air during filling and operation, preventing surges and protecting pipeline integrity across long mainlines.",
+    "features": [
+      "Automatic air release",
+      "Corrosion-resistant float mechanism",
+      "High air discharge capacity",
+      "Threaded field installation"
+    ],
+    "specs": [
+      {
+        "label": "Connection",
+        "value": "1\" BSP"
+      },
+      {
+        "label": "Max Pressure",
+        "value": "10 bar"
+      },
+      {
+        "label": "Body Material",
+        "value": "Engineering Plastic"
+      },
+      {
+        "label": "Application",
+        "value": "Mainline / Sub-main"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 826,
+    "price": 729,
+    "rating": 4.2,
+    "reviewCount": 120,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "aluminium-air-release-valve",
+    "name": "Aluminium Air Release Valve",
+    "category": "safety-valves",
+    "image": "assets/mock/products/img023-WEBP-1-600x600.webp",
+    "tagline": "Rugged metal-bodied air valve",
+    "description": "An aluminium-bodied air release valve built for higher-pressure mainlines where added mechanical strength is required.",
+    "features": [
+      "Die-cast aluminium body",
+      "Reliable float-based release",
+      "Corrosion-resistant coating",
+      "High-pressure rated"
+    ],
+    "specs": [
+      {
+        "label": "Connection",
+        "value": "1\" BSP"
+      },
+      {
+        "label": "Max Pressure",
+        "value": "16 bar"
+      },
+      {
+        "label": "Body Material",
+        "value": "Aluminium"
+      },
+      {
+        "label": "Application",
+        "value": "Mainline"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 613,
+    "price": 539,
+    "rating": 4.6,
+    "reviewCount": 28,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "flush-valve",
+    "name": "Flush Valve",
+    "category": "safety-valves",
+    "image": "assets/mock/products/img024-Untitled-design-29-600x600.jpg",
+    "tagline": "End-of-line flushing for clean laterals",
+    "description": "Positioned at the end of drip laterals, the flush valve automatically clears sediment build-up, extending emitter and dripline life.",
+    "features": [
+      "Automatic pressure-actuated flushing",
+      "Prevents sediment accumulation",
+      "Simple barb/threaded fitting",
+      "Maintenance-free operation"
+    ],
+    "specs": [
+      {
+        "label": "Connection",
+        "value": "16mm Barb / Threaded"
+      },
+      {
+        "label": "Operating Pressure",
+        "value": "0.3 – 2.5 bar"
+      },
+      {
+        "label": "Material",
+        "value": "Engineering Plastic"
+      },
+      {
+        "label": "Application",
+        "value": "Drip Lateral End"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 1677,
+    "price": 1489,
+    "rating": 4.1,
+    "reviewCount": 120,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "porus-pressure-release-valve",
+    "name": "Porus Pressure Release Valve",
+    "category": "safety-valves",
+    "image": "assets/mock/products/img025-porus-600x600.webp",
+    "tagline": "Male & female pressure relief valve",
+    "description": "Prevents over-pressurisation in drip and sprinkler laterals by releasing excess pressure automatically, protecting emitters downstream.",
+    "features": [
+      "Available in male & female fitting",
+      "Factory-set relief pressure",
+      "Compact, low-profile design",
+      "Long service life"
+    ],
+    "specs": [
+      {
+        "label": "Connection",
+        "value": "1/2\" – 3/4\""
+      },
+      {
+        "label": "Relief Pressure",
+        "value": "2.5 bar (factory set)"
+      },
+      {
+        "label": "Material",
+        "value": "Engineering Plastic"
+      },
+      {
+        "label": "Application",
+        "value": "Sub-main / Lateral"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 1420,
+    "price": 1259,
+    "rating": 4.2,
+    "reviewCount": 95,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "k-type-air-release-valve",
+    "name": "Kinetic Air Release Valve",
+    "category": "safety-valves",
+    "image": "assets/mock/products/img026-Untitled-design-34-600x600.jpg",
+    "tagline": "High-capacity kinetic air valve",
+    "description": "Designed for rapid, high-volume air release during pipeline filling and draining, minimising the risk of water-hammer.",
+    "features": [
+      "High-capacity air discharge",
+      "Kinetic double-orifice design",
+      "Rugged body construction",
+      "Suitable for large-diameter mains"
+    ],
+    "specs": [
+      {
+        "label": "Connection",
+        "value": "1\" – 2\" BSP"
+      },
+      {
+        "label": "Max Pressure",
+        "value": "16 bar"
+      },
+      {
+        "label": "Body Material",
+        "value": "Cast / Engineering Plastic"
+      },
+      {
+        "label": "Application",
+        "value": "Mainline"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 1005,
+    "price": 889,
+    "rating": 4.4,
+    "reviewCount": 226,
+    "inStock": false,
+    "featured": false
+  },
+  {
+    "slug": "riser-extension-pipe",
+    "name": "Riser Extension Pipe",
+    "category": "pipes-tubes",
+    "image": "assets/mock/products/img027-web-p-1-600x600.webp",
+    "tagline": "Adjustable riser for popup sprinklers",
+    "description": "Extends the height of popup sprinklers and rotors to clear tall grass or mulch beds, ensuring unobstructed spray patterns.",
+    "features": [
+      "Threaded NPT connection",
+      "UV-resistant material",
+      "Multiple length options",
+      "Compatible with most rotors"
+    ],
+    "specs": [
+      {
+        "label": "Connection",
+        "value": "3/4\" NPT"
+      },
+      {
+        "label": "Length Options",
+        "value": "4\" / 6\" / 12\""
+      },
+      {
+        "label": "Material",
+        "value": "PVC"
+      },
+      {
+        "label": "Max Pressure",
+        "value": "8 bar"
+      }
+    ],
+    "unit": "roll",
+    "mrp": 1240,
+    "price": 1099,
+    "rating": 4.2,
+    "reviewCount": 36,
+    "inStock": false,
+    "featured": false
+  },
+  {
+    "slug": "irridrip-plain-lateral-pipe",
+    "name": "Irridrip Plain Lateral Pipe",
+    "category": "pipes-tubes",
+    "image": "assets/mock/products/img028-Webp-Plain-600x600.webp",
+    "tagline": "LLDPE lateral pipe for drip networks",
+    "description": "A flexible LLDPE lateral pipe designed to carry water from sub-mains to drippers and micro sprinklers across the field.",
+    "features": [
+      "Weather & UV-resistant LLDPE",
+      "Consistent wall thickness",
+      "Flexible for easy field laying",
+      "Long service life"
+    ],
+    "specs": [
+      {
+        "label": "Sizes",
+        "value": "12mm / 16mm / 20mm"
+      },
+      {
+        "label": "Material",
+        "value": "LLDPE"
+      },
+      {
+        "label": "Max Pressure",
+        "value": "2.5 bar"
+      },
+      {
+        "label": "Application",
+        "value": "Drip Lateral"
+      }
+    ],
+    "unit": "roll",
+    "mrp": 1487,
+    "price": 1319,
+    "rating": 4.8,
+    "reviewCount": 97,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "irridrip-inline-dripline",
+    "name": "Irridrip Inline Dripline",
+    "category": "pipes-tubes",
+    "image": "assets/mock/products/img005-WEBP-4-600x600.webp",
+    "tagline": "Pre-fitted inline drippers for row crops",
+    "description": "Inline dripline with factory-fitted pressure-compensating emitters at fixed spacing — ideal for row crops, orchards and vegetable farming.",
+    "features": [
+      "Pressure-compensating emitters",
+      "Anti-clog turbulent flow path",
+      "Uniform emitter spacing",
+      "Available in multiple flow rates"
+    ],
+    "specs": [
+      {
+        "label": "Emitter Spacing",
+        "value": "30 / 40 / 50 cm"
+      },
+      {
+        "label": "Flow Rate",
+        "value": "1.6 / 2.2 / 4 LPH"
+      },
+      {
+        "label": "Material",
+        "value": "LLDPE"
+      },
+      {
+        "label": "Max Pressure",
+        "value": "2.5 bar"
+      }
+    ],
+    "unit": "roll",
+    "mrp": 1599,
+    "price": 1419,
+    "rating": 4.5,
+    "reviewCount": 151,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "micro-tube",
+    "name": "Micro Tube",
+    "category": "pipes-tubes",
+    "image": "assets/mock/products/img029-WEBP-2-600x600.webp",
+    "tagline": "Flexible feeder tube for micro sprinklers",
+    "description": "Connects laterals to micro sprinklers, drippers and foggers with a flexible, kink-resistant feeder tube.",
+    "features": [
+      "Kink-resistant flexible PVC",
+      "Consistent bore diameter",
+      "UV-stabilised for outdoor use",
+      "Available in multiple diameters"
+    ],
+    "specs": [
+      {
+        "label": "Sizes",
+        "value": "4mm / 5mm / 7mm"
+      },
+      {
+        "label": "Material",
+        "value": "Flexible PVC"
+      },
+      {
+        "label": "Max Pressure",
+        "value": "3 bar"
+      },
+      {
+        "label": "Application",
+        "value": "Emitter Feeder Line"
+      }
+    ],
+    "unit": "roll",
+    "mrp": 1061,
+    "price": 939,
+    "rating": 4.8,
+    "reviewCount": 173,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "plastic-mist-nozzle",
+    "name": "Plastic Mist Nozzle",
+    "category": "mister-foggers",
+    "image": "assets/mock/products/img030-WEB-P-600x600.webp",
+    "tagline": "Fine mist for cooling & humidity control",
+    "description": "Produces an ultra-fine mist ideal for greenhouse humidity control, nursery propagation and outdoor cooling systems.",
+    "features": [
+      "Fine atomised mist output",
+      "Anti-drip design",
+      "Corrosion-free plastic body",
+      "Low water consumption"
+    ],
+    "specs": [
+      {
+        "label": "Flow Rate",
+        "value": "6 – 15 LPH"
+      },
+      {
+        "label": "Operating Pressure",
+        "value": "3 – 8 bar"
+      },
+      {
+        "label": "Connection",
+        "value": "Threaded / Barb"
+      },
+      {
+        "label": "Material",
+        "value": "Engineering Plastic"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 255,
+    "price": 219,
+    "rating": 4.6,
+    "reviewCount": 60,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "threaded-barbed-fogger",
+    "name": "Threaded & Barbed Fogger",
+    "category": "mister-foggers",
+    "image": "assets/mock/products/img031-WEBP-Threaded-and-Barbed-600x600.webp",
+    "tagline": "Dual-fit fogger for flexible installation",
+    "description": "Available with both threaded and barbed fittings, this fogger adapts to a wide range of misting and cooling line configurations.",
+    "features": [
+      "Dual fitting options",
+      "Fine mist droplet size",
+      "Corrosion-resistant nozzle",
+      "Consistent output across pressure range"
+    ],
+    "specs": [
+      {
+        "label": "Flow Rate",
+        "value": "8 – 18 LPH"
+      },
+      {
+        "label": "Operating Pressure",
+        "value": "3 – 8 bar"
+      },
+      {
+        "label": "Connection",
+        "value": "Threaded / Barbed"
+      },
+      {
+        "label": "Material",
+        "value": "Brass Nozzle Tip"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 87,
+    "price": 69,
+    "rating": 4.7,
+    "reviewCount": 44,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "hanging-fogger",
+    "name": "Hanging Fogger",
+    "category": "mister-foggers",
+    "image": "assets/mock/products/img006-HF-600x600.webp",
+    "tagline": "Overhead misting for greenhouses & poultry",
+    "description": "Designed to hang from overhead lines, this fogger delivers 360° fine mist coverage for greenhouse cooling, poultry farms and nurseries.",
+    "features": [
+      "360° mist distribution",
+      "Anti-drip check feature",
+      "Easy overhead hanging mount",
+      "Consistent droplet size"
+    ],
+    "specs": [
+      {
+        "label": "Flow Rate",
+        "value": "10 – 20 LPH"
+      },
+      {
+        "label": "Operating Pressure",
+        "value": "3 – 8 bar"
+      },
+      {
+        "label": "Mount Type",
+        "value": "Overhead Hanging"
+      },
+      {
+        "label": "Material",
+        "value": "Engineering Plastic + Brass"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 64,
+    "price": 49,
+    "rating": 4.3,
+    "reviewCount": 48,
+    "inStock": true,
+    "featured": true
+  },
+  {
+    "slug": "one-touch-misting-cooling-timer",
+    "name": "One Touch Misting & Cooling Timer",
+    "category": "home-irrigation",
+    "image": "assets/mock/products/img032-Untitled-design-26-600x600.jpg",
+    "tagline": "Simple automated timer for cooling systems",
+    "description": "A one-touch programmable timer that automates misting and cooling cycles for terraces, poultry sheds and small greenhouses.",
+    "features": [
+      "One-touch programming",
+      "Battery operated",
+      "Multiple cycle settings",
+      "Compact tap-mount design"
+    ],
+    "specs": [
+      {
+        "label": "Connection",
+        "value": "3/4\" Tap Thread"
+      },
+      {
+        "label": "Power",
+        "value": "Battery Operated"
+      },
+      {
+        "label": "Cycle Range",
+        "value": "1 min – 24 hrs"
+      },
+      {
+        "label": "Material",
+        "value": "ABS Plastic"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 1980,
+    "price": 1759,
+    "rating": 4.1,
+    "reviewCount": 117,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "mini-digital-tap-water-timer",
+    "name": "Mini Digital Tap Water Timer",
+    "category": "home-irrigation",
+    "image": "assets/mock/products/img007-1-2-600x600.jpg",
+    "tagline": "Digital scheduling for home gardens",
+    "description": "Attach directly to any outdoor tap and program watering schedules digitally — perfect for home gardens, lawns and terrace planters.",
+    "features": [
+      "Digital LCD display",
+      "Multiple daily programs",
+      "Manual override option",
+      "Weather-resistant housing"
+    ],
+    "specs": [
+      {
+        "label": "Connection",
+        "value": "3/4\" Tap Thread"
+      },
+      {
+        "label": "Power",
+        "value": "2 x AA Battery"
+      },
+      {
+        "label": "Program Cycles",
+        "value": "Up to 8 / day"
+      },
+      {
+        "label": "Material",
+        "value": "ABS Plastic"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 1744,
+    "price": 1549,
+    "rating": 4.4,
+    "reviewCount": 229,
+    "inStock": true,
+    "featured": true
+  },
+  {
+    "slug": "brass-quick-coupling-valve",
+    "name": "Brass Quick Coupling Valve",
+    "category": "landscape-irrigation",
+    "image": "assets/mock/products/img008-webp-6-600x600.webp",
+    "tagline": "Durable brass quick-connect for landscapes",
+    "description": "A heavy-duty brass quick coupling valve for landscape irrigation, allowing fast hose or key connection without tools.",
+    "features": [
+      "Solid brass body",
+      "Spring-loaded self-sealing cap",
+      "Tool-free hose connection",
+      "Long-term corrosion resistance"
+    ],
+    "specs": [
+      {
+        "label": "Connection",
+        "value": "1\" BSP"
+      },
+      {
+        "label": "Material",
+        "value": "Brass"
+      },
+      {
+        "label": "Max Pressure",
+        "value": "10 bar"
+      },
+      {
+        "label": "Application",
+        "value": "Landscape / Golf Course"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 322,
+    "price": 279,
+    "rating": 4.8,
+    "reviewCount": 176,
+    "inStock": false,
+    "featured": false
+  },
+  {
+    "slug": "plastic-quick-coupling-valve",
+    "name": "Plastic Quick Coupling Valve",
+    "category": "landscape-irrigation",
+    "image": "assets/mock/products/img033-WEB-P-PLASTIC-600x600.webp",
+    "tagline": "Lightweight quick-connect for landscape lines",
+    "description": "An economical, corrosion-free alternative to brass couplers for landscape irrigation and portable watering setups.",
+    "features": [
+      "Corrosion-free plastic body",
+      "Self-sealing spring cap",
+      "Tool-free connection",
+      "Lightweight for easy handling"
+    ],
+    "specs": [
+      {
+        "label": "Connection",
+        "value": "1\" BSP"
+      },
+      {
+        "label": "Material",
+        "value": "Engineering Plastic"
+      },
+      {
+        "label": "Max Pressure",
+        "value": "8 bar"
+      },
+      {
+        "label": "Application",
+        "value": "Landscape Irrigation"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 1005,
+    "price": 889,
+    "rating": 4.4,
+    "reviewCount": 17,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "valve-box",
+    "name": "Valve Box",
+    "category": "landscape-irrigation",
+    "image": "assets/mock/products/img034-wep-p-600x600.webp",
+    "tagline": "Protective housing for buried valves",
+    "description": "Protects solenoid and control valves installed below grade, while allowing convenient access for servicing and inspection.",
+    "features": [
+      "UV-resistant lid",
+      "Traffic-tolerant construction",
+      "Accommodates multiple valve sizes",
+      "Simple below-grade installation"
+    ],
+    "specs": [
+      {
+        "label": "Size",
+        "value": "Standard / Jumbo"
+      },
+      {
+        "label": "Material",
+        "value": "HDPE"
+      },
+      {
+        "label": "Lid Type",
+        "value": "Hinged, Locking"
+      },
+      {
+        "label": "Application",
+        "value": "Below-Grade Valve Housing"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 1196,
+    "price": 1059,
+    "rating": 4.6,
+    "reviewCount": 238,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "swing-joint",
+    "name": "Swing Joint",
+    "category": "landscape-irrigation",
+    "image": "assets/mock/products/img035-Untitled-design-1-1-600x600.jpg",
+    "tagline": "Flexible riser connection for sprinklers",
+    "description": "Absorbs mower and foot traffic impact by allowing sprinkler heads to flex on their riser connection without pipe damage.",
+    "features": [
+      "Triple-articulated flexibility",
+      "Prevents riser breakage",
+      "Threaded NPT connections",
+      "UV-stabilised material"
+    ],
+    "specs": [
+      {
+        "label": "Connection",
+        "value": "1/2\" – 3/4\" NPT"
+      },
+      {
+        "label": "Material",
+        "value": "PVC / Flexible Polymer"
+      },
+      {
+        "label": "Max Pressure",
+        "value": "10 bar"
+      },
+      {
+        "label": "Application",
+        "value": "Popup Sprinkler Riser"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 1039,
+    "price": 919,
+    "rating": 4.5,
+    "reviewCount": 180,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "premium-service-saddle",
+    "name": "Premium Service Saddle",
+    "category": "saddles",
+    "image": "assets/mock/products/img009-Untitled-design-2-600x600.jpg",
+    "tagline": "Leak-free tapping for mainlines",
+    "description": "Allows a secure, leak-free lateral tap-off from mainline pipes without cutting the full pipeline, saving installation time.",
+    "features": [
+      "Reinforced clamp design",
+      "Rubber gasket for leak-free seal",
+      "Fits multiple pipe diameters",
+      "Corrosion-resistant hardware"
+    ],
+    "specs": [
+      {
+        "label": "Pipe Size Range",
+        "value": "2\" – 8\""
+      },
+      {
+        "label": "Outlet",
+        "value": "1/2\" – 1\""
+      },
+      {
+        "label": "Material",
+        "value": "Engineering Plastic + SS Clamp"
+      },
+      {
+        "label": "Max Pressure",
+        "value": "10 bar"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 188,
+    "price": 159,
+    "rating": 4.4,
+    "reviewCount": 27,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "winkit-jeet-kisaan-ki",
+    "name": "WINKIT — Jeet Kisaan Ki",
+    "category": "kits",
+    "image": "assets/mock/products/img010-1-600x600.webp",
+    "tagline": "Complete ready-to-install farm drip kit",
+    "description": "A complete drip irrigation kit bundling filters, pipes, valves and emitters — designed to get small and medium farms up and running fast.",
+    "features": [
+      "All-in-one kit components",
+      "Sized for small & medium plots",
+      "Simple DIY installation",
+      "Includes filtration & control valve"
+    ],
+    "specs": [
+      {
+        "label": "Coverage",
+        "value": "Up to 1 Acre"
+      },
+      {
+        "label": "Includes",
+        "value": "Filter, Pipes, Valve, Drippers"
+      },
+      {
+        "label": "Pressure Requirement",
+        "value": "1.0 – 2.5 bar"
+      },
+      {
+        "label": "Application",
+        "value": "Row Crops / Orchards"
+      }
+    ],
+    "unit": "set",
+    "mrp": 6146,
+    "price": 5479,
+    "rating": 4.2,
+    "reviewCount": 159,
+    "inStock": true,
+    "featured": true
+  },
+  {
+    "slug": "irrikit-automatic-dripkit",
+    "name": "Irrikit Automatic Dripkit",
+    "category": "kits",
+    "image": "assets/mock/products/img036-2ND-600x600.webp",
+    "tagline": "Automated drip kit for hands-free irrigation",
+    "description": "Combines a timer-controlled valve with a complete drip layout, allowing scheduled, hands-free irrigation for kitchen gardens and small farms.",
+    "features": [
+      "Timer-controlled automation",
+      "Complete drip layout included",
+      "Battery-operated controller",
+      "Expandable design"
+    ],
+    "specs": [
+      {
+        "label": "Coverage",
+        "value": "Up to 0.5 Acre"
+      },
+      {
+        "label": "Control",
+        "value": "Automatic Timer Valve"
+      },
+      {
+        "label": "Power",
+        "value": "Battery Operated"
+      },
+      {
+        "label": "Application",
+        "value": "Kitchen Garden / Small Farm"
+      }
+    ],
+    "unit": "set",
+    "mrp": 4712,
+    "price": 4199,
+    "rating": 4.2,
+    "reviewCount": 177,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "irrikit-manual-dripkit",
+    "name": "Irrikit Manual Dripkit",
+    "category": "kits",
+    "image": "assets/mock/products/img036-2ND-600x600.webp",
+    "tagline": "Budget-friendly manual drip kit",
+    "description": "A manually-operated drip kit offering an affordable entry point into efficient drip irrigation for small plots and home gardens.",
+    "features": [
+      "Manual ball valve control",
+      "Complete drip layout included",
+      "Low-cost entry kit",
+      "Easy to expand later"
+    ],
+    "specs": [
+      {
+        "label": "Coverage",
+        "value": "Up to 0.5 Acre"
+      },
+      {
+        "label": "Control",
+        "value": "Manual Ball Valve"
+      },
+      {
+        "label": "Includes",
+        "value": "Filter, Pipes, Drippers"
+      },
+      {
+        "label": "Application",
+        "value": "Home Garden / Small Farm"
+      }
+    ],
+    "unit": "set",
+    "mrp": 3256,
+    "price": 2899,
+    "rating": 4.1,
+    "reviewCount": 234,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "autosinchayi-kit",
+    "name": "AutoSinchayi Kit",
+    "category": "kits",
+    "image": "assets/mock/products/img037-2-copy-600x600.webp",
+    "tagline": "Smart automated irrigation for farms",
+    "description": "AutoSinchayi combines automated valve control with a full drip network, purpose-built to help Indian farmers save water and labour.",
+    "features": [
+      "Automated valve scheduling",
+      "Water-saving design",
+      "Complete field-ready layout",
+      "Built for Indian farm conditions"
+    ],
+    "specs": [
+      {
+        "label": "Coverage",
+        "value": "Up to 2 Acres"
+      },
+      {
+        "label": "Control",
+        "value": "Automatic Timer Valve"
+      },
+      {
+        "label": "Power",
+        "value": "Battery Operated"
+      },
+      {
+        "label": "Application",
+        "value": "Farm-Scale Irrigation"
+      }
+    ],
+    "unit": "set",
+    "mrp": 3928,
+    "price": 3499,
+    "rating": 4.8,
+    "reviewCount": 32,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "pitot-tube",
+    "name": "Pitot Tube",
+    "category": "other-products",
+    "image": "assets/mock/products/img038-WEBp-2-600x600.webp",
+    "tagline": "Field flow-measurement instrument",
+    "description": "Used to measure water flow velocity in pipelines on-site, helping farmers and technicians verify system performance.",
+    "features": [
+      "Accurate flow measurement",
+      "Portable, field-ready design",
+      "Durable stainless construction",
+      "Simple point-and-read use"
+    ],
+    "specs": [
+      {
+        "label": "Measurement Range",
+        "value": "0.3 – 6 m/s"
+      },
+      {
+        "label": "Material",
+        "value": "Stainless Steel"
+      },
+      {
+        "label": "Application",
+        "value": "Field Flow Diagnostics"
+      },
+      {
+        "label": "Type",
+        "value": "Portable Pitot"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 333,
+    "price": 289,
+    "rating": 4.3,
+    "reviewCount": 240,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "drip-fittings-brown",
+    "name": "Drip Fittings (Brown)",
+    "category": "other-products",
+    "image": "assets/mock/products/img039-WEBP-16-600x600.webp",
+    "tagline": "Complete range of drip lateral fittings",
+    "description": "A full range of tees, elbows, couplers and end-caps to build and expand drip laterals with a secure, leak-free fit.",
+    "features": [
+      "Leak-free push-fit design",
+      "UV-stabilised material",
+      "Wide range of fitting types",
+      "Compatible with standard lateral sizes"
+    ],
+    "specs": [
+      {
+        "label": "Sizes",
+        "value": "12mm / 16mm"
+      },
+      {
+        "label": "Material",
+        "value": "PP / LLDPE"
+      },
+      {
+        "label": "Max Pressure",
+        "value": "2.5 bar"
+      },
+      {
+        "label": "Application",
+        "value": "Drip Lateral Network"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 143,
+    "price": 119,
+    "rating": 4.6,
+    "reviewCount": 20,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "drip-fittings-black",
+    "name": "Drip Fittings (Black)",
+    "category": "other-products",
+    "image": "assets/mock/products/img040-NEW-600x600.webp",
+    "tagline": "UV-stable fittings for outdoor drip lines",
+    "description": "Black UV-stable fittings designed for long-term outdoor exposure across drip irrigation networks.",
+    "features": [
+      "Enhanced UV stability",
+      "Leak-free push-fit design",
+      "Wide fitting range",
+      "Long outdoor service life"
+    ],
+    "specs": [
+      {
+        "label": "Sizes",
+        "value": "12mm / 16mm"
+      },
+      {
+        "label": "Material",
+        "value": "UV-Stabilised PP"
+      },
+      {
+        "label": "Max Pressure",
+        "value": "2.5 bar"
+      },
+      {
+        "label": "Application",
+        "value": "Drip Lateral Network"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 98,
+    "price": 79,
+    "rating": 4.7,
+    "reviewCount": 209,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "online-pc-drip-emitter",
+    "name": "Online PC Drip Emitter",
+    "category": "other-products",
+    "image": "assets/mock/products/img041-webP23-600x600.webp",
+    "tagline": "Pressure-compensating emitter for uneven terrain",
+    "description": "Delivers consistent flow regardless of pressure variation, making it ideal for sloped fields and long lateral runs.",
+    "features": [
+      "Pressure-compensating membrane",
+      "Anti-clog labyrinth path",
+      "Consistent flow on slopes",
+      "Snap-on lateral installation"
+    ],
+    "specs": [
+      {
+        "label": "Flow Rate",
+        "value": "2 / 4 / 8 LPH"
+      },
+      {
+        "label": "Pressure Range",
+        "value": "0.5 – 4 bar"
+      },
+      {
+        "label": "Material",
+        "value": "Engineering Plastic"
+      },
+      {
+        "label": "Application",
+        "value": "Sloped / Long Laterals"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 154,
+    "price": 129,
+    "rating": 4.2,
+    "reviewCount": 177,
+    "inStock": true,
+    "featured": false
+  },
+  {
+    "slug": "online-drip-emitter",
+    "name": "Online Drip Emitter",
+    "category": "other-products",
+    "image": "assets/mock/products/img042-wEB-P-1-1-600x600.webp",
+    "tagline": "Economical point-source dripper",
+    "description": "A simple, cost-effective online emitter for point-source irrigation of individual plants, pots and orchard trees.",
+    "features": [
+      "Snap-on lateral installation",
+      "Anti-clog flow path",
+      "Economical per-unit cost",
+      "Wide flow rate options"
+    ],
+    "specs": [
+      {
+        "label": "Flow Rate",
+        "value": "2 / 4 / 8 LPH"
+      },
+      {
+        "label": "Pressure Range",
+        "value": "0.5 – 3.5 bar"
+      },
+      {
+        "label": "Material",
+        "value": "Engineering Plastic"
+      },
+      {
+        "label": "Application",
+        "value": "Point-Source Irrigation"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 266,
+    "price": 229,
+    "rating": 4.5,
+    "reviewCount": 6,
+    "inStock": false,
+    "featured": false
+  },
+  {
+    "slug": "bubbler",
+    "name": "Bubbler",
+    "category": "other-products",
+    "image": "assets/mock/products/img011-Web-p2-600x600.webp",
+    "tagline": "Localised flooding for tree basins",
+    "description": "Delivers a gentle, localised flow of water directly to tree basins — ideal for orchard and plantation irrigation.",
+    "features": [
+      "Low-angle bubbling flow",
+      "Adjustable flow output",
+      "Corrosion-free construction",
+      "Simple threaded installation"
+    ],
+    "specs": [
+      {
+        "label": "Flow Rate",
+        "value": "40 – 120 LPH"
+      },
+      {
+        "label": "Pressure Range",
+        "value": "1.0 – 2.5 bar"
+      },
+      {
+        "label": "Material",
+        "value": "Engineering Plastic"
+      },
+      {
+        "label": "Application",
+        "value": "Tree Basin Irrigation"
+      }
+    ],
+    "unit": "piece",
+    "mrp": 165,
+    "price": 139,
+    "rating": 4.3,
+    "reviewCount": 88,
+    "inStock": true,
+    "featured": false
+  }
+]

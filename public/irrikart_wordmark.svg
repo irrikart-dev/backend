@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 40" width="200" height="40" role="img" aria-label="IrriKart">
+  <!-- PLACEHOLDER wordmark. Replace with the client's real logo asset.
+       Drawn with currentColor so the app bar can tint it per theme. -->
+  <g fill="currentColor">
+    <!-- leaf mark -->
+    <path d="M8 30c0-9.94 8.06-18 18-18h4v4c0 9.94-8.06 18-18 18h-4v-4z" opacity="0.9"/>
+    <path d="M10 32c4-7.5 9.5-12 16-14.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.45"/>
+    <!-- wordmark -->
+    <text x="42" y="28"
+          font-family="Grandis Extended, Plus Jakarta, Segoe UI, sans-serif"
+          font-size="21" font-weight="700" letter-spacing="-0.4">Irri<tspan font-weight="400">Kart</tspan></text>
+  </g>
+</svg>
