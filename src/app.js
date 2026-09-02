@@ -8,6 +8,7 @@ import morgan from 'morgan';
 import { config } from './config/index.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { adminRouter } from './routes/admin.routes.js';
+import { authRouter } from './routes/auth.routes.js';
 import { catalogRouter } from './routes/catalog.routes.js';
 
 export function createApp() {
@@ -18,7 +19,10 @@ export function createApp() {
     cors({
       origin(origin, cb) {
         // No Origin header = same-origin, curl, or the mobile app — always allowed.
-        if (!origin || config.corsOrigins.includes(origin)) return cb(null, true);
+        if (!origin) return cb(null, true);
+        if (config.corsOrigins.includes('*') || config.corsOrigins.includes(origin)) {
+          return cb(null, true);
+        }
         cb(new Error(`Origin ${origin} is not allowed by CORS`));
       },
     }),
@@ -39,6 +43,7 @@ export function createApp() {
   );
 
   app.use('/api/v1', catalogRouter);
+  app.use('/api/v1/auth', authRouter);
   app.use('/api/v1/admin', adminRouter);
 
   app.use(notFoundHandler);

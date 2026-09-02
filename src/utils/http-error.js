@@ -10,4 +10,5 @@ export class HttpError extends Error {
   static forbidden(msg = 'Not allowed') { return new HttpError(403, msg); }
   static notFound(msg = 'Not found') { return new HttpError(404, msg); }
   static conflict(msg, details) { return new HttpError(409, msg, details); }
+  static serviceUnavailable(msg) { return new HttpError(503, msg); }
 }
