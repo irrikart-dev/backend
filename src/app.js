@@ -28,6 +28,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 
+// Vercel (and Fly) sit in front of this app as a reverse proxy and set
+// X-Forwarded-For; trusting exactly one hop lets express-rate-limit and
+// req.ip read the real client IP instead of the proxy's.
+app.set('trust proxy', 1);
+
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
