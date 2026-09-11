@@ -1,0 +1,13 @@
+app = "irrikart-worker"
+primary_region = "bom"
+
+[build]
+
+[processes]
+  app = "node src/worker.js"
+
+# no [[services]] block — this process holds a Redis connection, it
+# doesn't listen on a port, so Fly has nothing to route HTTP traffic to
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

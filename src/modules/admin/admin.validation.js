@@ -1,0 +1,68 @@
+import { z } from 'zod';
+
+const specSchema = z.object({ label: z.string(), value: z.string() });
+
+export const createProductSchema = z.object({
+  body: z.object({
+    name: z.string().min(1),
+    sku: z.string().min(1).optional(),
+    slug: z.string().min(1).optional(),
+    category: z.string().min(1),
+    tagline: z.string().optional(),
+    description: z.string().optional(),
+    unit: z.string().optional(),
+    price: z.number().nonnegative(),
+    stockQty: z.number().int().nonnegative().optional(),
+    imageUrl: z.string().nullable().optional(),
+    features: z.array(z.string()).optional(),
+    specs: z.array(specSchema).optional(),
+    inStock: z.boolean().optional(),
+    active: z.boolean().optional(),
+  }),
+});
+
+export const updateProductSchema = z.object({
+  body: z.object({
+    name: z.string().min(1).optional(),
+    slug: z.string().min(1).optional(),
+    category: z.string().min(1).optional(),
+    tagline: z.string().optional(),
+    description: z.string().optional(),
+    unit: z.string().optional(),
+    price: z.number().nonnegative().optional(),
+    stockQty: z.number().int().nonnegative().optional(),
+    imageUrl: z.string().nullable().optional(),
+    features: z.array(z.string()).optional(),
+    specs: z.array(specSchema).optional(),
+    inStock: z.boolean().optional(),
+    active: z.boolean().optional(),
+  }),
+});
+
+export const pricingSchema = z.object({
+  body: z.object({
+    price: z.number().nonnegative(),
+  }),
+});
+
+export const stockSchema = z.object({
+  body: z.object({
+    stock: z.number().int().nonnegative(),
+  }),
+});
+
+export const createCategorySchema = z.object({
+  body: z.object({
+    name: z.string().min(1),
+    blurb: z.string().optional(),
+    imageUrl: z.string().nullable().optional(),
+  }),
+});
+
+export const updateCategorySchema = z.object({
+  body: z.object({
+    name: z.string().min(1).optional(),
+    blurb: z.string().optional(),
+    imageUrl: z.string().nullable().optional(),
+  }),
+});

@@ -1,11 +1,8 @@
-import { config } from './config/index.js';
-import { createApp } from './app.js';
-import { store } from './services/store.js';
+import app from './app.js';
+import env from './config/env.js';
+import logger from './common/utils/logger.js';
+// workers run as their own process (src/worker.js) on Fly.io, not here
 
-await store.init();
-
-createApp().listen(config.port, () => {
-  console.log(`IrriKart API listening on http://localhost:${config.port}/api/v1`);
-  console.log(`  catalogue: ${store.products.length} products, ${store.categories.length} categories`);
-  console.log(`  admin login: ${config.admin.email}`);
+app.listen(env.PORT, () => {
+  logger.info(`server listening on port ${env.PORT}`);
 });
