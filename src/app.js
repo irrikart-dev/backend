@@ -4,20 +4,12 @@ import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
-import { createBullBoard } from '@bull-board/api';
-import { BullMQAdapter } from '@bull-board/api/bullMQAdapter.js';
-import { ExpressAdapter } from '@bull-board/express';
 import swaggerUi from 'swagger-ui-express';
 
 import { errorHandler, notFoundHandler } from './common/middlewares/errorHandler.js';
 import { authenticate, authorize } from './common/middlewares/auth.js';
 import { openapiSpec } from './config/openapi.js';
-import {
-  notificationsQueue,
-  fulfillmentQueue,
-  notificationsDlq,
-  fulfillmentDlq,
-} from './events/queues.js';
+import logger from './common/utils/logger.js';
 
 import { routes as authRoutes } from './modules/auth/index.js';
 import { routes as catalogRoutes } from './modules/catalog/index.js';
@@ -68,16 +60,34 @@ app.use('/api/v1/reviews', reviewsRoutes);
 app.use('/api/v1/notifications', notificationsRoutes);
 app.use('/api/v1/admin', adminRoutes);
 
-// queue inspection dashboard — admin-only, shows both queues plus their DLQs
-const bullBoard = new ExpressAdapter();
-bullBoard.setBasePath('/admin/queues');
-createBullBoard({
-  queues: [notificationsQueue, fulfillmentQueue, notificationsDlq, fulfillmentDlq].map(
-    (q) => new BullMQAdapter(q)
-  ),
-  serverAdapter: bullBoard,
-});
-app.use('/admin/queues', authenticate, authorize('ADMIN'), bullBoard.getRouter());
+// Queue inspection dashboard — admin-only, shows both queues plus their DLQs.
+// Loaded dynamically and best-effort: @bull-board/api reads its UI assets from
+// node_modules at runtime, which serverless bundlers (Vercel's included) can't
+// always trace into the deployed function, so a broken bundle here must not
+// take down routes that have nothing to do with the queue dashboard.
+try {
+  const [{ createBullBoard }, { BullMQAdapter }, { ExpressAdapter }, queues] = await Promise.all([
+    import('@bull-board/api'),
+    import('@bull-board/api/bullMQAdapter.js'),
+    import('@bull-board/express'),
+    import('./events/queues.js'),
+  ]);
+
+  const bullBoard = new ExpressAdapter();
+  bullBoard.setBasePath('/admin/queues');
+  createBullBoard({
+    queues: [
+      queues.notificationsQueue,
+      queues.fulfillmentQueue,
+      queues.notificationsDlq,
+      queues.fulfillmentDlq,
+    ].map((q) => new BullMQAdapter(q)),
+    serverAdapter: bullBoard,
+  });
+  app.use('/admin/queues', authenticate, authorize('ADMIN'), bullBoard.getRouter());
+} catch (err) {
+  logger.warn({ err }, 'queue dashboard unavailable — continuing without /admin/queues');
+}
 
 app.use(notFoundHandler);
 app.use(errorHandler);
