@@ -22,6 +22,8 @@ export default {
   MSG91_AUTH_KEY: process.env.MSG91_AUTH_KEY,
   MSG91_EMAIL_DOMAIN: process.env.MSG91_EMAIL_DOMAIN,
 
+  STORAGE_PROVIDER: process.env.STORAGE_PROVIDER || 'supabase',
+
   SUPABASE_URL: process.env.SUPABASE_URL,
   SUPABASE_SECRET_KEY: process.env.SUPABASE_SECRET_KEY,
   SUPABASE_STORAGE_BUCKET: process.env.SUPABASE_STORAGE_BUCKET || 'irrikart-uploads',
