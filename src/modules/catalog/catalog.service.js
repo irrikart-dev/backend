@@ -268,3 +268,25 @@ export async function deleteProduct(id) {
   if (result.notFound) throw new NotFoundError('Product not found');
   await Promise.all(result.imageUrls.map(deleteImage));
 }
+
+// ---- stats ----
+
+export async function getStats() {
+  const raw = await repository.getStatsRaw();
+  const prices = raw.variants.map((v) => Number(v.price));
+  const inventoryValue = raw.variants.reduce((sum, v) => sum + Number(v.price) * v.stock, 0);
+  const averagePrice = prices.length ? prices.reduce((sum, p) => sum + p, 0) / prices.length : 0;
+
+  return {
+    totalProducts: raw.totalProducts,
+    activeProducts: raw.activeProducts,
+    adminProducts: raw.adminProducts,
+    seedProducts: raw.seedProducts,
+    outOfStock: raw.outOfStock,
+    categories: raw.categoryCount,
+    inventoryValue,
+    averagePrice,
+    byCategory: raw.categories.map((c) => ({ id: c.id, name: c.name, count: c._count.products })),
+    recentlyUpdated: raw.recentlyUpdated.map(toProductDto),
+  };
+}

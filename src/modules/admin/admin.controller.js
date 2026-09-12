@@ -14,6 +14,11 @@ export const uploadImage = asyncHandler(async (req, res) => {
   res.status(201).json({ success: true, data: { url } });
 });
 
+export const getStats = asyncHandler(async (req, res) => {
+  const data = await catalogService.getStats();
+  res.json({ success: true, data });
+});
+
 // ---- products ----
 
 export const listProducts = asyncHandler(async (req, res) => {

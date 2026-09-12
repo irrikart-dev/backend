@@ -139,4 +139,45 @@ export default {
     await prisma.product.delete({ where: { id } });
     return { imageUrls: existing.images.map((i) => i.url) };
   },
+
+  // ---- stats ----
+
+  async getStatsRaw() {
+    const [
+      totalProducts,
+      activeProducts,
+      adminProducts,
+      seedProducts,
+      outOfStock,
+      categoryCount,
+      categories,
+      variants,
+      recentlyUpdated,
+    ] = await Promise.all([
+      prisma.product.count(),
+      prisma.product.count({ where: { active: true } }),
+      prisma.product.count({ where: { source: 'admin' } }),
+      prisma.product.count({ where: { source: 'seed' } }),
+      prisma.product.count({ where: { variants: { none: { stock: { gt: 0 } } } } }),
+      prisma.category.count(),
+      prisma.category.findMany({
+        orderBy: { name: 'asc' },
+        include: { _count: { select: { products: true } } },
+      }),
+      prisma.productVariant.findMany({ select: { price: true, stock: true } }),
+      prisma.product.findMany({ include: productInclude, orderBy: { updatedAt: 'desc' }, take: 5 }),
+    ]);
+
+    return {
+      totalProducts,
+      activeProducts,
+      adminProducts,
+      seedProducts,
+      outOfStock,
+      categoryCount,
+      categories,
+      variants,
+      recentlyUpdated,
+    };
+  },
 };

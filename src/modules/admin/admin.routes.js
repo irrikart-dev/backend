@@ -41,6 +41,22 @@ router.use(authenticate, loadUser, authorize('ADMIN'));
  */
 router.post('/uploads/image', upload.single('file'), controller.uploadImage);
 
+/**
+ * @openapi
+ * /admin/stats:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Dashboard stats
+ *     description: >
+ *       Product/category counts, inventory value, and recent activity for the admin dashboard.
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Stats }
+ *       401: { description: Missing, invalid, or revoked Firebase ID token }
+ *       403: { description: Not an admin }
+ */
+router.get('/stats', controller.getStats);
+
 router.get('/products', controller.listProducts);
 router.get('/products/:id', controller.getProduct);
 router.post('/products', validate(createProductSchema), controller.createProduct);
