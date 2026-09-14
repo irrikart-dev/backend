@@ -3,6 +3,7 @@ import { paymentProvider } from './providers/index.js';
 import env from '../../config/env.js';
 import { prisma } from '../../config/db.js';
 import ordersRepository from '../orders/orders.repository.js';
+import cartRepository from '../cart/cart.repository.js';
 import * as inventory from '../inventory/inventory.service.js';
 import * as discounts from '../discounts/discounts.service.js';
 import logger from '../../common/utils/logger.js';
@@ -67,6 +68,9 @@ async function captureOrder(payment, entity) {
     for (const item of payment.order.items) {
       await inventory.commitReservedStock(tx, item.variantId, item.quantity, payment.orderId);
     }
+    // checkout deliberately left the cart untouched (see orders.service.js) — convert it
+    // now that payment is actually confirmed, not before
+    await cartRepository.markConverted(payment.order.cartId, tx);
   });
 }
 

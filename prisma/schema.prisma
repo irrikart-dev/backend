@@ -233,7 +233,8 @@ model Cart {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
-  items CartItem[]
+  items  CartItem[]
+  orders Order[]
 
   @@index([userId, status])
 }
@@ -271,6 +272,10 @@ model Order {
   orderNumber String      @unique
   userId      String
   user        User        @relation(fields: [userId], references: [id])
+  // the cart this order was placed from — kept so payment confirmation can convert exactly
+  // this cart (not "whatever the user's active cart happens to be") once payment lands
+  cartId      String
+  cart        Cart        @relation(fields: [cartId], references: [id])
   status      OrderStatus @default(PLACED)
   totalAmount Decimal     @db.Decimal(10, 2)
   createdAt   DateTime    @default(now())

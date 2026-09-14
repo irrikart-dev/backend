@@ -55,4 +55,10 @@ export default {
   deleteAllCartItems(cartId) {
     return prisma.cartItem.deleteMany({ where: { cartId } });
   },
+
+  // payment confirmed: this cart's items are now the order's items, not available to edit
+  // anymore. Convert rather than delete — keeps the exact snapshot of what was ordered.
+  markConverted(cartId, client = prisma) {
+    return client.cart.update({ where: { id: cartId }, data: { status: 'CONVERTED' } });
+  },
 };

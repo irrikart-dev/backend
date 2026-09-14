@@ -5,7 +5,7 @@ import cartRepository from '../cart/cart.repository.js';
 import * as inventory from '../inventory/inventory.service.js';
 import * as discounts from '../discounts/discounts.service.js';
 import * as payments from '../payments/payments.service.js';
-import { BadRequestError, ConflictError } from '../../common/errors/AppError.js';
+import { BadRequestError, ConflictError, NotFoundError } from '../../common/errors/AppError.js';
 
 function available(variant) {
   return variant.stock - variant.reserved;
@@ -56,7 +56,10 @@ export async function checkout(userId, { couponCode } = {}) {
   const providerOrder = await payments.createPaymentOrder({ amount: totalAmount, receipt: orderNumber });
 
   const { order } = await prisma.$transaction(async (tx) => {
-    const createdOrder = await repository.createOrder({ orderNumber, userId, totalAmount, items: lineItems }, tx);
+    const createdOrder = await repository.createOrder(
+      { orderNumber, userId, cartId: cart.id, totalAmount, items: lineItems },
+      tx
+    );
 
     for (const item of lineItems) {
       await inventory.reserveStock(tx, item.variantId, item.quantity, createdOrder.id);
@@ -75,9 +78,9 @@ export async function checkout(userId, { couponCode } = {}) {
     return { order: createdOrder, payment };
   });
 
-  // outside the transaction: if this fails after commit, the cart is merely stale, harmless
-  await cartRepository.deleteAllCartItems(cart.id);
-
+  // cart is deliberately left untouched here — it's only converted once payment actually
+  // confirms (payments.service.js captureOrder), so a failed/abandoned payment leaves the
+  // cart exactly as the user left it, ready to retry checkout
   return {
     orderId: order.id,
     orderNumber: order.orderNumber,
@@ -86,4 +89,55 @@ export async function checkout(userId, { couponCode } = {}) {
     providerOrderId: providerOrder.id,
     ...payments.getClientConfig(),
   };
+}
+
+function toOrderItemDto(item) {
+  const { variant } = item;
+  const { product } = variant;
+
+  return {
+    variantId: variant.id,
+    productId: product.id,
+    name: product.title,
+    slug: product.slug,
+    image: product.images?.[0]?.url ?? null,
+    sku: variant.sku,
+    quantity: item.quantity,
+    unitPrice: Number(item.unitPrice),
+    totalPrice: Number(item.totalPrice),
+  };
+}
+
+function toOrderDto(order) {
+  return {
+    id: order.id,
+    orderNumber: order.orderNumber,
+    status: order.status,
+    amount: Number(order.totalAmount),
+    currency: 'INR',
+    createdAt: order.createdAt,
+    items: order.items.map(toOrderItemDto),
+  };
+}
+
+function toOrderSummaryDto(order) {
+  return {
+    id: order.id,
+    orderNumber: order.orderNumber,
+    status: order.status,
+    amount: Number(order.totalAmount),
+    currency: 'INR',
+    createdAt: order.createdAt,
+  };
+}
+
+export async function getOrder(userId, orderId) {
+  const order = await repository.findByIdForUser(orderId, userId);
+  if (!order) throw new NotFoundError('Order not found');
+  return toOrderDto(order);
+}
+
+export async function listOrders(userId) {
+  const orders = await repository.listForUser(userId);
+  return orders.map(toOrderSummaryDto);
 }

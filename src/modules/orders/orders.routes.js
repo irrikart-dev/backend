@@ -30,4 +30,35 @@ router.use(authenticate, loadUser);
  */
 router.post('/checkout', validate(checkoutSchema), controller.checkout);
 
+/**
+ * @openapi
+ * /orders:
+ *   get:
+ *     tags: [Orders]
+ *     summary: Order history for the caller, newest first
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: List of orders (summary shape, no line items) }
+ *       401: { description: Missing, invalid, or revoked Firebase ID token }
+ */
+router.get('/', controller.listOrders);
+
+/**
+ * @openapi
+ * /orders/{id}:
+ *   get:
+ *     tags: [Orders]
+ *     summary: One order's full detail, including line items
+ *     description: >
+ *       Poll this after the payment SDK's callback fires until `status` leaves
+ *       `PLACED` (becomes `CONFIRMED` or `CANCELLED`) — the SDK callback alone is not
+ *       proof of payment confirmation, see the checkout contract doc.
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Order detail }
+ *       401: { description: Missing, invalid, or revoked Firebase ID token }
+ *       404: { description: Order not found, or belongs to another user }
+ */
+router.get('/:id', controller.getOrder);
+
 export default router;
