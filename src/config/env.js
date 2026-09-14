@@ -7,6 +7,8 @@ export default {
   DATABASE_URL: process.env.DATABASE_URL,
   DIRECT_URL: process.env.DIRECT_URL,
 
+  PAYMENT_PROVIDER: process.env.PAYMENT_PROVIDER || 'razorpay',
+
   RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID,
   RAZORPAY_KEY_SECRET: process.env.RAZORPAY_KEY_SECRET,
   RAZORPAY_WEBHOOK_SECRET: process.env.RAZORPAY_WEBHOOK_SECRET,

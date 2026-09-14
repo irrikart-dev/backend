@@ -33,7 +33,9 @@ app.set('trust proxy', 1);
 
 app.use(helmet());
 app.use(cors());
-app.use(express.json());
+// razorpay webhook needs the raw bytes to verify the signature — stashed here since
+// this is the only place the body is parsed
+app.use(express.json({ verify: (req, _res, buf) => { req.rawBody = buf; } }));
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 300 }));
 
 // product/category images + brand assets — served publicly, cross-origin (admin

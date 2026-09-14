@@ -1,4 +1,26 @@
 import { prisma } from '../../config/db.js';
 
-// query functions for this module's own tables — wire to prisma.orders once the model exists in schema.prisma
-export default {};
+export default {
+  createOrder({ orderNumber, userId, totalAmount, items }, client = prisma) {
+    return client.order.create({
+      data: {
+        orderNumber,
+        userId,
+        totalAmount,
+        items: {
+          create: items.map(({ variantId, quantity, unitPrice, totalPrice }) => ({
+            variantId,
+            quantity,
+            unitPrice,
+            totalPrice,
+          })),
+        },
+      },
+      include: { items: true },
+    });
+  },
+
+  updateStatus(orderId, status, client = prisma) {
+    return client.order.update({ where: { id: orderId }, data: { status } });
+  },
+};

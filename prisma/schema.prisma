@@ -227,9 +227,8 @@ enum CartStatus {
 
 model Cart {
   id          String     @id @default(cuid())
-  userId      String?
-  user        User?      @relation(fields: [userId], references: [id])
-  guestToken  String?
+  userId      String
+  user        User       @relation(fields: [userId], references: [id])
   status      CartStatus @default(ACTIVE)
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
@@ -237,7 +236,6 @@ model Cart {
   items CartItem[]
 
   @@index([userId, status])
-  @@index([guestToken, status])
 }
 
 model CartItem {
@@ -319,8 +317,9 @@ model Payment {
   id                String        @id @default(cuid())
   orderId           String
   order             Order         @relation(fields: [orderId], references: [id])
-  razorpayOrderId   String        @unique
-  razorpayPaymentId String?       @unique
+  provider          String        @default("razorpay") // matches STORAGE_PROVIDER convention — see PaymentProviderFactory
+  providerOrderId   String        @unique
+  providerPaymentId String?       @unique
   status            PaymentStatus @default(CREATED)
   amount            Decimal       @db.Decimal(10, 2)
   method            String?
@@ -330,7 +329,7 @@ model Payment {
 
   @@index([orderId])
   // webhook handler's first move: "have I processed this payment_id already?"
-  // razorpayPaymentId unique index above is what makes that lookup O(1) and idempotent
+  // providerPaymentId unique index above is what makes that lookup O(1) and idempotent
 }
 
 model Refund {
