@@ -47,6 +47,13 @@ function toProductDto(p) {
 
   return {
     id: p.id,
+    // Single-variant-per-product model (see the single_vendor_simplify
+    // migration) — but the cart's POST /cart/items still keys off the
+    // variant's own id, not the product's, so it has to be exposed here.
+    // Was missing entirely before this fix: the app had no way to add
+    // anything to the cart without it, since the only id it ever saw was
+    // the product's.
+    variantId: variant?.id ?? null,
     sku: variant?.sku ?? '',
     slug: p.slug,
     name: p.title,
