@@ -21,6 +21,7 @@ import { routes as discountsRoutes } from './modules/discounts/index.js';
 import { routes as reviewsRoutes } from './modules/reviews/index.js';
 import { routes as notificationsRoutes } from './modules/notifications/index.js';
 import { routes as adminRoutes } from './modules/admin/index.js';
+import { routes as vendorRoutes } from './modules/vendors/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -64,6 +65,7 @@ app.use('/api/v1/discounts', discountsRoutes);
 app.use('/api/v1/reviews', reviewsRoutes);
 app.use('/api/v1/notifications', notificationsRoutes);
 app.use('/api/v1/admin', adminRoutes);
+app.use('/api/v1/vendor', vendorRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

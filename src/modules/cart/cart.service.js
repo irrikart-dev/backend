@@ -1,5 +1,5 @@
 import repository from './cart.repository.js';
-import { NotFoundError, ConflictError } from '../../common/errors/AppError.js';
+import { NotFoundError, ConflictError, VendorConflictError } from '../../common/errors/AppError.js';
 
 function available(variant) {
   return variant.stock - variant.reserved;
@@ -27,13 +27,15 @@ function toCartItemDto(item) {
 }
 
 function toCartDto(cart) {
-  if (!cart) return { id: null, status: 'ACTIVE', items: [], itemCount: 0, subtotal: 0, total: 0 };
+  if (!cart) {
+    return { id: null, status: 'ACTIVE', vendorId: null, items: [], itemCount: 0, subtotal: 0, total: 0 };
+  }
 
   const items = cart.items.map(toCartItemDto);
   const subtotal = items.reduce((sum, i) => sum + i.lineTotal, 0);
   const itemCount = items.reduce((sum, i) => sum + i.quantity, 0);
 
-  return { id: cart.id, status: cart.status, items, itemCount, subtotal, total: subtotal };
+  return { id: cart.id, status: cart.status, vendorId: cart.vendorId, items, itemCount, subtotal, total: subtotal };
 }
 
 // ponytail: no DB constraint stops two concurrent first-adds from racing to create two
@@ -54,6 +56,27 @@ export async function addItem(userId, { variantId, quantity }) {
   if (!variant) throw new NotFoundError('Product variant not found');
 
   const cart = await getOrCreateActiveCart(userId);
+  const newVendorId = variant.product.vendorId;
+
+  // a cart only ever holds one vendor's products at a time — adding from a different
+  // vendor is rejected so the client can prompt to clear the cart first, rather than
+  // us silently splitting the order later
+  if (cart.vendorId && cart.vendorId !== newVendorId) {
+    const [currentVendor, newVendor] = await Promise.all([
+      repository.findVendorById(cart.vendorId),
+      repository.findVendorById(newVendorId),
+    ]);
+    throw new VendorConflictError(
+      `Your cart has items from ${currentVendor?.storeName ?? 'another seller'} — clear it before adding items from ${newVendor?.storeName ?? 'this seller'}.`,
+      {
+        currentVendorId: cart.vendorId,
+        currentVendorName: currentVendor?.storeName ?? null,
+        newVendorId,
+        newVendorName: newVendor?.storeName ?? null,
+      }
+    );
+  }
+
   const existingItem = await repository.findCartItem(cart.id, variantId);
   const desiredQuantity = (existingItem?.quantity ?? 0) + quantity;
 
@@ -67,6 +90,8 @@ export async function addItem(userId, { variantId, quantity }) {
   } else {
     await repository.createCartItem({ cartId: cart.id, variantId, quantity, priceSnapshot: price });
   }
+
+  if (!cart.vendorId) await repository.setCartVendor(cart.id, newVendorId);
 
   return getCart(userId);
 }
@@ -92,11 +117,15 @@ export async function removeItem(userId, itemId) {
   if (!item) throw new NotFoundError('Cart item not found');
 
   await repository.deleteCartItem(itemId);
+  if ((await repository.countCartItems(cart.id)) === 0) await repository.setCartVendor(cart.id, null);
   return getCart(userId);
 }
 
 export async function clearCart(userId) {
   const cart = await repository.findActiveCartByUserId(userId);
-  if (cart) await repository.deleteAllCartItems(cart.id);
+  if (cart) {
+    await repository.deleteAllCartItems(cart.id);
+    await repository.setCartVendor(cart.id, null);
+  }
   return getCart(userId);
 }

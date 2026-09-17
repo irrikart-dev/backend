@@ -12,11 +12,12 @@ export default {
   },
 
   // webhook only carries the gateway's order id, not our internal orderId — this is the
-  // lookup that maps back, and it also pulls the line items reserve/release needs
+  // lookup that maps back, and it also pulls the line items reserve/release needs plus
+  // the order's vendor (captureOrder needs its razorpayAccountId for the Route transfer)
   findByProviderOrderId(providerOrderId) {
     return prisma.payment.findUnique({
       where: { providerOrderId },
-      include: { order: { include: { items: true } } },
+      include: { order: { include: { items: true, vendor: true } } },
     });
   },
 
@@ -33,5 +34,9 @@ export default {
       where: { id: paymentId, status: 'CREATED' },
       data: { status: 'FAILED', providerPaymentId },
     });
+  },
+
+  recordTransfer(paymentId, { transferId, transferStatus }) {
+    return prisma.payment.update({ where: { id: paymentId }, data: { transferId, transferStatus } });
   },
 };

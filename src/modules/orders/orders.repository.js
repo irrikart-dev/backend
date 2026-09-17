@@ -13,13 +13,19 @@ const orderItemInclude = {
 };
 
 export default {
-  createOrder({ orderNumber, userId, cartId, totalAmount, items }, client = prisma) {
+  createOrder(
+    { orderNumber, userId, cartId, vendorId, totalAmount, vendorAmount, platformAmount, items },
+    client = prisma
+  ) {
     return client.order.create({
       data: {
         orderNumber,
         userId,
         cartId,
+        vendorId,
         totalAmount,
+        vendorAmount,
+        platformAmount,
         items: {
           create: items.map(({ variantId, quantity, unitPrice, totalPrice }) => ({
             variantId,
@@ -50,5 +56,18 @@ export default {
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
+  },
+
+  // vendor's own order list/detail — same scoping pattern as the *ForUser pair above
+  listForVendor(vendorId) {
+    return prisma.order.findMany({
+      where: { vendorId },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+  },
+
+  findByIdForVendor(orderId, vendorId) {
+    return prisma.order.findFirst({ where: { id: orderId, vendorId }, include: orderItemInclude });
   },
 };

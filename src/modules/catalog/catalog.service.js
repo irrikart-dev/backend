@@ -1,15 +1,8 @@
 import repository from './catalog.repository.js';
 import * as inventoryService from '../inventory/inventory.service.js';
 import { deleteImage } from '../admin/admin.service.js';
-import { NotFoundError, ConflictError } from '../../common/errors/AppError.js';
-
-function slugify(text) {
-  return text
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)/g, '');
-}
+import { slugify } from '../../common/utils/slugify.js';
+import { NotFoundError, ConflictError, ForbiddenError } from '../../common/errors/AppError.js';
 
 async function uniqueSlug(base) {
   let slug = base;
@@ -57,6 +50,8 @@ function toProductDto(p) {
     sku: variant?.sku ?? '',
     slug: p.slug,
     name: p.title,
+    vendorId: p.vendorId,
+    vendor: p.vendor ? { id: p.vendor.id, storeName: p.vendor.storeName, slug: p.vendor.slug } : null,
     category: p.categoryId,
     categoryName: p.category?.name,
     image: image?.url ?? null,
@@ -90,7 +85,7 @@ function toPublicProductDto(p) {
 // ---- app-facing catalogue (public, live products only) ----
 
 export async function listPublicProducts({ search, categoryId, page, limit }) {
-  const filter = { search, categoryId, active: true };
+  const filter = { search, categoryId, active: true, publicOnly: true };
   const [rows, total] = await Promise.all([
     repository.listProducts({ ...filter, skip: (page - 1) * limit, take: limit }),
     repository.countProducts(filter),
@@ -99,10 +94,19 @@ export async function listPublicProducts({ search, categoryId, page, limit }) {
   return { items: rows.map(toPublicProductDto), page, limit, total };
 }
 
+// a vendor with a Route account that isn't activated yet can't be paid out, so their
+// products stay unlisted until it is (see routeStatus on Vendor). The platform's own
+// system vendor has no razorpayAccountId and is exempt from this gate.
+function isVendorSellable(vendor) {
+  if (!vendor) return false;
+  if (!vendor.razorpayAccountId) return true;
+  return vendor.status === 'ACTIVE' && vendor.routeStatus === 'activated';
+}
+
 export async function getPublicProduct(idOrSlug) {
   const row = await repository.getProductByIdOrSlug(idOrSlug);
   // a hidden product is indistinguishable from a missing one to the app
-  if (!row || !row.active) throw new NotFoundError('Product not found');
+  if (!row || !row.active || !isVendorSellable(row.vendor)) throw new NotFoundError('Product not found');
   return toPublicProductDto(row);
 }
 
@@ -168,9 +172,10 @@ export async function listProducts(query) {
   return rows.map(toProductDto);
 }
 
-export async function getProduct(id) {
+export async function getProduct(id, { vendorId } = {}) {
   const row = await repository.getProductById(id);
   if (!row) throw new NotFoundError('Product not found');
+  if (vendorId && row.vendorId !== vendorId) throw new ForbiddenError('Not your product');
   return toProductDto(row);
 }
 
@@ -180,6 +185,7 @@ export async function createProduct(input) {
 
   const row = await repository.createProduct({
     product: {
+      vendorId: input.vendorId,
       categoryId: input.category,
       title: input.name,
       slug,
@@ -208,9 +214,10 @@ export async function createProduct(input) {
   return toProductDto(row);
 }
 
-export async function updateProduct(id, input) {
+export async function updateProduct(id, input, { vendorId } = {}) {
   const before = await repository.getProductById(id);
   if (!before) throw new NotFoundError('Product not found');
+  if (vendorId && before.vendorId !== vendorId) throw new ForbiddenError('Not your product');
 
   const row = await repository.updateProduct(id, {
     product: {
@@ -270,7 +277,12 @@ export async function updateProductStock(id, { stock }) {
   return getProduct(id);
 }
 
-export async function deleteProduct(id) {
+export async function deleteProduct(id, { vendorId } = {}) {
+  if (vendorId) {
+    const existing = await repository.getProductById(id);
+    if (!existing) throw new NotFoundError('Product not found');
+    if (existing.vendorId !== vendorId) throw new ForbiddenError('Not your product');
+  }
   const result = await repository.deleteProduct(id);
   if (result.notFound) throw new NotFoundError('Product not found');
   await Promise.all(result.imageUrls.map(deleteImage));

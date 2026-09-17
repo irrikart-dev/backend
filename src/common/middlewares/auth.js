@@ -48,3 +48,18 @@ export function authorize(...allowedRoles) {
     next();
   };
 }
+
+// resolves the Vendor row owned by req.user and attaches it as req.vendor. Runs after
+// authorize('VENDOR'); a VENDOR-role user with no linked Vendor row, or one that's been
+// suspended, is forbidden rather than let through with no vendor scope to act under.
+export async function loadVendor(req, res, next) {
+  try {
+    const vendor = await prisma.vendor.findUnique({ where: { ownerUserId: req.user.id } });
+    if (!vendor) return next(new ForbiddenError('No vendor account linked to this user'));
+    if (vendor.status === 'SUSPENDED') return next(new ForbiddenError('Vendor account suspended'));
+    req.vendor = vendor;
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
