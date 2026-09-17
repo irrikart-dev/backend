@@ -24,6 +24,15 @@ export class RazorpayProvider extends PaymentProvider {
     return Razorpay.validateWebhookSignature(rawBody, signature, env.RAZORPAY_WEBHOOK_SECRET);
   }
 
+  // signed with the API secret (not the webhook secret) over "orderId|paymentId"
+  verifyPaymentSignature({ providerOrderId, providerPaymentId, signature }) {
+    return Razorpay.validateWebhookSignature(
+      `${providerOrderId}|${providerPaymentId}`,
+      signature,
+      env.RAZORPAY_KEY_SECRET
+    );
+  }
+
   clientConfig() {
     return { keyId: env.RAZORPAY_KEY_ID };
   }

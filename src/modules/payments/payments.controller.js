@@ -7,3 +7,11 @@ export const handleWebhook = asyncHandler(async (req, res) => {
   await service.handleWebhookEvent(req.rawBody, req.headers['x-razorpay-signature'], req.body);
   res.json({ success: true });
 });
+
+export const verifyPayment = asyncHandler(async (req, res) => {
+  const data = await service.verifyPayment({
+    ...req.validated.body,
+    userId: req.user.id,
+  });
+  res.json({ success: true, data });
+});

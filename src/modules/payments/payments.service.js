@@ -7,7 +7,7 @@ import cartRepository from '../cart/cart.repository.js';
 import * as inventory from '../inventory/inventory.service.js';
 import * as discounts from '../discounts/discounts.service.js';
 import logger from '../../common/utils/logger.js';
-import { BadRequestError } from '../../common/errors/AppError.js';
+import { BadRequestError, NotFoundError } from '../../common/errors/AppError.js';
 
 // rupees -> paise boundary — nowhere else in the app deals in paise
 export function createPaymentOrder({ amount, receipt }) {
@@ -52,6 +52,55 @@ export async function handleWebhookEvent(rawBody, signature, body) {
   if (body.event === 'payment.captured') return captureOrder(payment, entity);
   if (body.event === 'payment.failed') return failOrder(payment, entity);
   logger.info({ event: body.event }, 'payment webhook: unhandled event, ignoring');
+}
+
+/**
+ * Client-driven confirmation, for the app to call the moment the checkout SDK
+ * reports success — so an order isn't hostage to webhook delivery latency.
+ *
+ * The webhook remains the source of truth for everything asynchronous (an
+ * abandoned sheet, a payment captured minutes later, a refund). This path just
+ * gets the common case confirmed immediately. Both funnel through the same
+ * status-guarded capture/fail writes, so whichever arrives second is a no-op
+ * rather than a double-commit.
+ *
+ * Trust chain: the caller's signature proves they hold this payment, and
+ * fetchPayment() is then treated as authoritative for its actual status — a
+ * valid signature alone never confirms an order.
+ */
+export async function verifyPayment({ orderId, providerPaymentId, signature, userId }) {
+  const payment = await repository.findByOrderId(orderId);
+  // same response for "not yours" as "doesn't exist" — don't leak order ids
+  if (!payment || payment.order.userId !== userId) throw new NotFoundError('Order not found');
+
+  const valid = (() => {
+    try {
+      return paymentProvider.verifyPaymentSignature({
+        providerOrderId: payment.providerOrderId,
+        providerPaymentId,
+        signature,
+      });
+    } catch {
+      return false;
+    }
+  })();
+  if (!valid) {
+    logger.warn({ orderId, providerPaymentId }, 'payment verify: bad signature');
+    throw new BadRequestError('Payment signature verification failed');
+  }
+
+  const entity = await paymentProvider.fetchPayment(providerPaymentId);
+  if (entity?.order_id !== payment.providerOrderId) {
+    throw new BadRequestError('Payment does not belong to this order');
+  }
+
+  if (entity.status === 'captured') await captureOrder(payment, entity);
+  else if (entity.status === 'failed') await failOrder(payment, entity);
+  // authorized / created: money isn't settled yet — leave the order PLACED and
+  // let the webhook finish it; the app keeps polling.
+
+  const order = await ordersRepository.findByIdForUser(payment.orderId, userId);
+  return { orderId: payment.orderId, status: order?.status ?? 'PLACED' };
 }
 
 async function captureOrder(payment, entity) {
