@@ -10,15 +10,17 @@ const orderItemInclude = {
       },
     },
   },
+  address: true,
 };
 
 export default {
-  createOrder({ orderNumber, userId, cartId, totalAmount, items }, client = prisma) {
+  createOrder({ orderNumber, userId, cartId, addressId, totalAmount, items }, client = prisma) {
     return client.order.create({
       data: {
         orderNumber,
         userId,
         cartId,
+        addressId,
         totalAmount,
         items: {
           create: items.map(({ variantId, quantity, unitPrice, totalPrice }) => ({
