@@ -7,6 +7,7 @@ import cartRepository from '../cart/cart.repository.js';
 import * as inventory from '../inventory/inventory.service.js';
 import * as discounts from '../discounts/discounts.service.js';
 import * as shipping from '../shipping/shipping.service.js';
+import * as vendorsService from '../vendors/vendors.service.js';
 import logger from '../../common/utils/logger.js';
 import { BadRequestError, NotFoundError } from '../../common/errors/AppError.js';
 
@@ -134,10 +135,36 @@ async function captureOrder(payment, entity) {
     return true;
   });
 
-  // outside the transaction — this is a network call to Shiprocket, and it
-  // already logs-and-swallows its own failures (see shipping.service), so it
-  // must never be allowed to undo or delay the payment confirmation above
-  if (justCaptured) void shipping.createShipmentForOrder(payment.orderId);
+  if (!justCaptured) return;
+
+  // both outside the transaction — network calls (Shiprocket, Razorpay Route
+  // transfer) that must never be allowed to undo or delay the payment
+  // confirmation above. Each logs and swallows its own failures.
+  void shipping.createShipmentForOrder(payment.orderId);
+  await transferToVendor(payment, entity);
+}
+
+// splits the vendor's cut to their Razorpay Route account. Deliberately outside the
+// capture transaction above — the customer's payment already succeeded either way, so a
+// transfer failure shouldn't roll back a confirmed order, just leave transferStatus
+// reflecting it for reconciliation. No-op for the platform's own system vendor (no
+// razorpayAccountId to transfer to).
+async function transferToVendor(payment, entity) {
+  const vendor = payment.order.vendor;
+  if (!vendor?.razorpayAccountId) return;
+
+  try {
+    const amountPaise = Math.round(Number(payment.order.vendorAmount) * 100);
+    const result = await vendorsService.transferPayout(vendor.razorpayAccountId, entity.id, amountPaise);
+    const transfer = result?.items?.[0];
+    await repository.recordTransfer(payment.id, {
+      transferId: transfer?.id ?? null,
+      transferStatus: transfer?.status ?? 'processed',
+    });
+  } catch (err) {
+    logger.error({ err, paymentId: payment.id }, 'route transfer to vendor failed after capture');
+    await repository.recordTransfer(payment.id, { transferId: null, transferStatus: 'failed' });
+  }
 }
 
 async function failOrder(payment, entity) {

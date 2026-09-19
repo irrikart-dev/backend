@@ -7,6 +7,7 @@ import * as discounts from '../discounts/discounts.service.js';
 import * as payments from '../payments/payments.service.js';
 import * as addresses from '../addresses/addresses.service.js';
 import * as shipping from '../shipping/shipping.service.js';
+import * as vendorsService from '../vendors/vendors.service.js';
 import { BadRequestError, ConflictError, NotFoundError } from '../../common/errors/AppError.js';
 
 function available(variant) {
@@ -25,6 +26,11 @@ export async function checkout(userId, { couponCode, addressId } = {}) {
 
   const cart = await cartRepository.findActiveCartWithItems(userId);
   if (!cart || cart.items.length === 0) throw new BadRequestError('Cart is empty');
+
+  // a cart only ever holds one vendor's items (see cart.service.js addItem), so
+  // cart.vendorId is guaranteed set here
+  const vendor = await vendorsService.getVendorById(cart.vendorId);
+  if (!vendor || vendor.status !== 'ACTIVE') throw new BadRequestError('This seller is no longer available');
 
   // re-validate against current stock/price — the cart's own include already joins the
   // live variant row, so this is the same read, not a second query
@@ -64,6 +70,12 @@ export async function checkout(userId, { couponCode, addressId } = {}) {
   }
   const orderNumber = generateOrderNumber();
 
+  // split at the vendor's commission rate as of checkout time, so a later commission
+  // change never retroactively changes an already-placed order's numbers
+  const commissionPercent = Number(vendor.commissionPercent);
+  const vendorAmount = Math.round(totalAmount * (1 - commissionPercent / 100));
+  const platformAmount = totalAmount - vendorAmount;
+
   // gateway call stays outside the DB transaction: Payment.providerOrderId is unique and
   // non-nullable, so it must exist before Payment can be created, and keeping this network
   // call out of the transaction means a gateway outage never leaves a half-reserved order
@@ -71,7 +83,17 @@ export async function checkout(userId, { couponCode, addressId } = {}) {
 
   const { order } = await prisma.$transaction(async (tx) => {
     const createdOrder = await repository.createOrder(
-      { orderNumber, userId, cartId: cart.id, addressId, totalAmount, items: lineItems },
+      {
+        orderNumber,
+        userId,
+        cartId: cart.id,
+        vendorId: cart.vendorId,
+        addressId,
+        totalAmount,
+        vendorAmount,
+        platformAmount,
+        items: lineItems,
+      },
       tx
     );
 
@@ -144,6 +166,8 @@ function toOrderDto(order) {
     orderNumber: order.orderNumber,
     status: order.status,
     amount: Number(order.totalAmount),
+    vendorAmount: Number(order.vendorAmount),
+    platformAmount: Number(order.platformAmount),
     currency: 'INR',
     createdAt: order.createdAt,
     items: order.items.map(toOrderItemDto),
@@ -172,4 +196,15 @@ export async function getOrder(userId, orderId) {
 export async function listOrders(userId) {
   const orders = await repository.listForUser(userId);
   return orders.map(toOrderSummaryDto);
+}
+
+export async function listOrdersForVendor(vendorId) {
+  const orders = await repository.listForVendor(vendorId);
+  return orders.map(toOrderSummaryDto);
+}
+
+export async function getOrderForVendor(vendorId, orderId) {
+  const order = await repository.findByIdForVendor(orderId, vendorId);
+  if (!order) throw new NotFoundError('Order not found');
+  return toOrderDto(order);
 }

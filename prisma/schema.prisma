@@ -5,7 +5,7 @@ generator client {
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL") // Neon pooled (PgBouncer) connection — used at runtime
-  directUrl = env("DIRECT_URL")   // Neon direct connection — used by prisma migrate only
+  directUrl = env("DIRECT_URL") // Neon direct connection — used by prisma migrate only
 }
 
 // each module owns its own models below.
@@ -18,6 +18,7 @@ datasource db {
 enum UserRole {
   CUSTOMER
   ADMIN
+  VENDOR
 }
 
 enum UserStatus {
@@ -40,16 +41,17 @@ model User {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
-  addresses     Address[]
-  deviceTokens  DeviceToken[]
-  carts         Cart[]
-  orders        Order[]
-  wishlist      WishlistItem[]
+  addresses      Address[]
+  deviceTokens   DeviceToken[]
+  carts          Cart[]
+  orders         Order[]
+  wishlist       WishlistItem[]
   recentlyViewed RecentlyViewed[]
-  reviews       Review[]
-  rfqRequests   RfqRequest[]
-  notifications Notification[]
-  couponUsages  CouponUsage[]
+  reviews        Review[]
+  rfqRequests    RfqRequest[]
+  notifications  Notification[]
+  couponUsages   CouponUsage[]
+  vendor         Vendor?
 
   // every list of a user's own rows filters by userId then sorts by time —
   // covered case-by-case on the child tables (orders, notifications, etc).
@@ -89,19 +91,55 @@ model DeviceToken {
 }
 
 // ============================================================
+// vendors — src/modules/vendors
+// ============================================================
+
+enum VendorStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+// a vendor's Razorpay Route linked account is created outside this app (vendor/admin
+// sets it up directly with Razorpay) — we only ever fetch and store its status here,
+// never create or configure the account ourselves.
+model Vendor {
+  id                String       @id @default(cuid())
+  ownerUserId       String?      @unique
+  ownerUser         User?        @relation(fields: [ownerUserId], references: [id])
+  storeName         String
+  slug              String       @unique
+  status            VendorStatus @default(ACTIVE)
+  commissionPercent Decimal      @default(10) @db.Decimal(5, 2)
+  legalBusinessName String?
+  contactEmail      String?
+  contactPhone      String?
+  razorpayAccountId String?      @unique
+  routeStatus       String? // raw activation_status from Razorpay's accounts.fetch, e.g. activated | under_review
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  products Product[]
+  carts    Cart[]
+  orders   Order[]
+
+  // admin vendor list, catalog's vendor filter
+  @@index([status])
+}
+
+// ============================================================
 // catalog — src/modules/catalog
 // ============================================================
 
 model Category {
-  id        String     @id @default(cuid())
-  parentId  String?
-  parent    Category?  @relation("CategoryTree", fields: [parentId], references: [id])
-  children  Category[] @relation("CategoryTree")
-  name      String
-  slug      String     @unique
-  blurb     String?
-  imageUrl  String?
-  products  Product[]
+  id       String     @id @default(cuid())
+  parentId String?
+  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryTree")
+  name     String
+  slug     String     @unique
+  blurb    String?
+  imageUrl String?
+  products Product[]
 
   // category-tree walk: "all children of X"
   @@index([parentId])
@@ -115,26 +153,28 @@ model Brand {
 }
 
 model Product {
-  id          String    @id @default(cuid())
+  id          String   @id @default(cuid())
+  vendorId    String
+  vendor      Vendor   @relation(fields: [vendorId], references: [id])
   categoryId  String
-  category    Category  @relation(fields: [categoryId], references: [id])
+  category    Category @relation(fields: [categoryId], references: [id])
   brandId     String?
-  brand       Brand?    @relation(fields: [brandId], references: [id])
+  brand       Brand?   @relation(fields: [brandId], references: [id])
   title       String
-  slug        String    @unique
+  slug        String   @unique
   tagline     String?
   description String?
-  features    String[]  @default([])
+  features    String[] @default([])
   specs       Json?
-  rating      Float     @default(0)
-  reviewCount Int       @default(0)
-  inStock     Boolean   @default(true)
-  active      Boolean   @default(true)
+  rating      Float    @default(0)
+  reviewCount Int      @default(0)
+  inStock     Boolean  @default(true)
+  active      Boolean  @default(true)
   // YouTube URL for the PDP media viewer's demo-video slot — optional, admin-set
   videoUrl    String?
-  source      String    @default("admin") // seed | admin
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  source      String   @default("admin") // seed | admin
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   variants       ProductVariant[]
   images         ProductImage[]
@@ -146,6 +186,8 @@ model Product {
   // catalog browse: filter by category + only live products, newest first
   @@index([categoryId, active, createdAt])
   @@index([brandId])
+  // vendor's own product list, and the public storefront's per-vendor storefront page
+  @@index([vendorId, active, createdAt])
 }
 
 model ProductVariant {
@@ -189,14 +231,14 @@ model ProductImage {
 
 // audit trail for every stock change — reservation, order, return, manual admin edit
 model InventoryLedger {
-  id        String   @id @default(cuid())
+  id        String         @id @default(cuid())
   variantId String
   variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
   changeQty Int
   reason    String // reserve | release | order | return | manual
   refType   String?
   refId     String?
-  createdAt DateTime @default(now())
+  createdAt DateTime       @default(now())
 
   // stock history for one SKU, most recent first
   @@index([variantId, createdAt])
@@ -240,12 +282,16 @@ enum CartStatus {
 }
 
 model Cart {
-  id          String     @id @default(cuid())
-  userId      String
-  user        User       @relation(fields: [userId], references: [id])
-  status      CartStatus @default(ACTIVE)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  id        String     @id @default(cuid())
+  userId    String
+  user      User       @relation(fields: [userId], references: [id])
+  status    CartStatus @default(ACTIVE)
+  // set from the first item added, cleared once the cart empties — a cart can only ever
+  // hold items from one vendor at a time (see cart.service.js addItem)
+  vendorId  String?
+  vendor    Vendor?    @relation(fields: [vendorId], references: [id])
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 
   items  CartItem[]
   orders Order[]
@@ -254,13 +300,13 @@ model Cart {
 }
 
 model CartItem {
-  id             String         @id @default(cuid())
-  cartId         String
-  cart           Cart           @relation(fields: [cartId], references: [id], onDelete: Cascade)
-  variantId      String
-  variant        ProductVariant @relation(fields: [variantId], references: [id])
-  quantity       Int
-  priceSnapshot  Decimal        @db.Decimal(10, 2)
+  id            String         @id @default(cuid())
+  cartId        String
+  cart          Cart           @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  variantId     String
+  variant       ProductVariant @relation(fields: [variantId], references: [id])
+  quantity      Int
+  priceSnapshot Decimal        @db.Decimal(10, 2)
 
   @@unique([cartId, variantId])
 }
@@ -269,8 +315,11 @@ model CartItem {
 // orders — src/modules/orders
 // ============================================================
 
-// single-vendor storefront (IrriKart is the only seller) — no per-vendor split,
-// commission, or payout tracking; one order ships and fulfills as one unit
+// a cart (and therefore an order) only ever holds one vendor's products at a time —
+// see Cart.vendorId — so an order still ships and fulfills as one unit, just with a
+// vendorId to attribute it to. vendorAmount/platformAmount split the total at the
+// vendor's commissionPercent as of checkout time, and payment capture transfers
+// vendorAmount to the vendor's Razorpay Route account (see payments.service.js).
 enum OrderStatus {
   PLACED
   CONFIRMED
@@ -282,21 +331,25 @@ enum OrderStatus {
 }
 
 model Order {
-  id          String      @id @default(cuid())
-  orderNumber String      @unique
-  userId      String
-  user        User        @relation(fields: [userId], references: [id])
+  id             String      @id @default(cuid())
+  orderNumber    String      @unique
+  userId         String
+  user           User        @relation(fields: [userId], references: [id])
   // the cart this order was placed from — kept so payment confirmation can convert exactly
   // this cart (not "whatever the user's active cart happens to be") once payment lands
-  cartId      String
-  cart        Cart        @relation(fields: [cartId], references: [id])
+  cartId         String
+  cart           Cart        @relation(fields: [cartId], references: [id])
+  vendorId       String
+  vendor         Vendor      @relation(fields: [vendorId], references: [id])
   // nullable so historical orders placed before addresses existed stay valid —
   // checkout() requires one for every new order at the application level
-  addressId   String?
-  address     Address?    @relation(fields: [addressId], references: [id])
-  status      OrderStatus @default(PLACED)
-  totalAmount Decimal     @db.Decimal(10, 2)
-  createdAt   DateTime    @default(now())
+  addressId      String?
+  address        Address?    @relation(fields: [addressId], references: [id])
+  status         OrderStatus @default(PLACED)
+  totalAmount    Decimal     @db.Decimal(10, 2)
+  vendorAmount   Decimal     @db.Decimal(10, 2)
+  platformAmount Decimal     @db.Decimal(10, 2)
+  createdAt      DateTime    @default(now())
 
   items        OrderItem[]
   payments     Payment[]
@@ -308,17 +361,19 @@ model Order {
   @@index([userId, createdAt])
   // admin console: filter by status, sorted by recency
   @@index([status, createdAt])
+  // vendor's own order list, newest first
+  @@index([vendorId, createdAt])
 }
 
 model OrderItem {
-  id          String         @id @default(cuid())
-  orderId     String
-  order       Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  variantId   String
-  variant     ProductVariant @relation(fields: [variantId], references: [id])
-  quantity    Int
-  unitPrice   Decimal        @db.Decimal(10, 2)
-  totalPrice  Decimal        @db.Decimal(10, 2)
+  id         String         @id @default(cuid())
+  orderId    String
+  order      Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variantId  String
+  variant    ProductVariant @relation(fields: [variantId], references: [id])
+  quantity   Int
+  unitPrice  Decimal        @db.Decimal(10, 2)
+  totalPrice Decimal        @db.Decimal(10, 2)
 
   review Review?
 
@@ -346,13 +401,17 @@ model Payment {
   status            PaymentStatus @default(CREATED)
   amount            Decimal       @db.Decimal(10, 2)
   method            String?
+  // Razorpay Route split-transfer to the order's vendor, made on capture — null for
+  // orders on the platform's own system vendor (no razorpayAccountId to transfer to)
+  transferId        String?
+  transferStatus    String? // processed | reversed | failed
   createdAt         DateTime      @default(now())
 
   refunds Refund[]
-
-  @@index([orderId])
   // webhook handler's first move: "have I processed this payment_id already?"
   // providerPaymentId unique index above is what makes that lookup O(1) and idempotent
+
+  @@index([orderId])
 }
 
 model Refund {
@@ -383,13 +442,13 @@ enum ShipmentStatus {
 }
 
 model Shipment {
-  id                  String         @id @default(cuid())
-  orderId             String         @unique
-  order               Order          @relation(fields: [orderId], references: [id])
-  shiprocketShipmentId String        @unique
-  awbNumber           String?        @unique
-  status              ShipmentStatus @default(CREATED)
-  createdAt           DateTime       @default(now())
+  id                   String         @id @default(cuid())
+  orderId              String         @unique
+  order                Order          @relation(fields: [orderId], references: [id])
+  shiprocketShipmentId String         @unique
+  awbNumber            String?        @unique
+  status               ShipmentStatus @default(CREATED)
+  createdAt            DateTime       @default(now())
 
   trackingEvents ShipmentTrackingEvent[]
 
@@ -398,12 +457,12 @@ model Shipment {
 }
 
 model ShipmentTrackingEvent {
-  id         String   @id @default(cuid())
-  shipmentId String
-  shipment   Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
-  status     String
+  id          String   @id @default(cuid())
+  shipmentId  String
+  shipment    Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  status      String
   description String?
-  occurredAt DateTime
+  occurredAt  DateTime
 
   // shipment detail timeline, chronological
   @@index([shipmentId, occurredAt])
@@ -439,15 +498,15 @@ enum CouponType {
 }
 
 model Coupon {
-  id             String     @id @default(cuid())
-  code           String     @unique
-  type           CouponType
-  value          Decimal    @db.Decimal(10, 2)
-  minCartValue   Decimal?   @db.Decimal(10, 2)
-  usageLimit     Int?
-  perUserLimit   Int?
-  expiresAt      DateTime?
-  createdAt      DateTime   @default(now())
+  id           String     @id @default(cuid())
+  code         String     @unique
+  type         CouponType
+  value        Decimal    @db.Decimal(10, 2)
+  minCartValue Decimal?   @db.Decimal(10, 2)
+  usageLimit   Int?
+  perUserLimit Int?
+  expiresAt    DateTime?
+  createdAt    DateTime   @default(now())
 
   usages CouponUsage[]
 

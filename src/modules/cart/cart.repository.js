@@ -26,9 +26,25 @@ export default {
     return prisma.cart.create({ data: { userId, status: 'ACTIVE' } });
   },
 
-  // cart-local variant lookup by id — catalog.repository only exposes getVariantBySku
+  // cart-local variant lookup by id — catalog.repository only exposes getVariantBySku.
+  // Includes the owning product's vendorId so cart.service.js can enforce single-vendor.
   findVariantById(variantId) {
-    return prisma.productVariant.findUnique({ where: { id: variantId } });
+    return prisma.productVariant.findUnique({
+      where: { id: variantId },
+      include: { product: { select: { vendorId: true } } },
+    });
+  },
+
+  findVendorById(id) {
+    return prisma.vendor.findUnique({ where: { id }, select: { id: true, storeName: true } });
+  },
+
+  setCartVendor(cartId, vendorId) {
+    return prisma.cart.update({ where: { id: cartId }, data: { vendorId } });
+  },
+
+  countCartItems(cartId) {
+    return prisma.cartItem.count({ where: { cartId } });
   },
 
   findCartItem(cartId, variantId) {

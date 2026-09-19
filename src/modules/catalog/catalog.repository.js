@@ -3,28 +3,39 @@ import { prisma } from '../../config/db.js';
 const productInclude = {
   category: true,
   brand: true,
+  vendor: { select: { id: true, storeName: true, slug: true, status: true, razorpayAccountId: true, routeStatus: true } },
   // full lists — the DTO still treats variants[0]/images[0] as the default
   // shown outside the PDP, but the PDP gallery/variant selector needs the rest
   variants: { orderBy: { id: 'asc' } },
   images: { orderBy: { position: 'asc' } },
 };
 
+// a vendor with a Route account not yet activated can't be paid out — see
+// catalog.service.js's isVendorSellable, which this mirrors at the query level
+const publicVendorGate = {
+  OR: [{ vendor: { razorpayAccountId: null } }, { vendor: { status: 'ACTIVE', routeStatus: 'activated' } }],
+};
+
 // shared by the admin list (no `active` filter) and the app list (active only),
-// so a change to what "search" means can't drift between the two
-function productWhere({ search, categoryId, active } = {}) {
-  return {
-    ...(categoryId ? { categoryId } : {}),
-    ...(active !== undefined ? { active } : {}),
-    ...(search
-      ? {
-          OR: [
-            { title: { contains: search, mode: 'insensitive' } },
-            { slug: { contains: search, mode: 'insensitive' } },
-            { variants: { some: { sku: { contains: search, mode: 'insensitive' } } } },
-          ],
-        }
-      : {}),
-  };
+// so a change to what "search" means can't drift between the two. Built as an AND of
+// independent clauses (not a flat object) so publicOnly's OR and search's OR never
+// collide by overwriting each other's `OR` key.
+function productWhere({ search, categoryId, active, vendorId, publicOnly } = {}) {
+  const clauses = [];
+  if (vendorId) clauses.push({ vendorId });
+  if (categoryId) clauses.push({ categoryId });
+  if (active !== undefined) clauses.push({ active });
+  if (publicOnly) clauses.push(publicVendorGate);
+  if (search) {
+    clauses.push({
+      OR: [
+        { title: { contains: search, mode: 'insensitive' } },
+        { slug: { contains: search, mode: 'insensitive' } },
+        { variants: { some: { sku: { contains: search, mode: 'insensitive' } } } },
+      ],
+    });
+  }
+  return clauses.length ? { AND: clauses } : {};
 }
 
 export default {
@@ -62,9 +73,9 @@ export default {
 
   // ---- products ----
 
-  listProducts({ search, categoryId, active, skip, take } = {}) {
+  listProducts({ search, categoryId, active, vendorId, publicOnly, skip, take } = {}) {
     return prisma.product.findMany({
-      where: productWhere({ search, categoryId, active }),
+      where: productWhere({ search, categoryId, active, vendorId, publicOnly }),
       include: productInclude,
       orderBy: { updatedAt: 'desc' },
       ...(skip !== undefined ? { skip } : {}),
@@ -72,8 +83,8 @@ export default {
     });
   },
 
-  countProducts({ search, categoryId, active } = {}) {
-    return prisma.product.count({ where: productWhere({ search, categoryId, active }) });
+  countProducts({ search, categoryId, active, vendorId, publicOnly } = {}) {
+    return prisma.product.count({ where: productWhere({ search, categoryId, active, vendorId, publicOnly }) });
   },
 
   getProductById(id) {

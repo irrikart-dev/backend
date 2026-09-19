@@ -37,3 +37,9 @@ export class ConflictError extends AppError {
     super(message, 409);
   }
 }
+
+export class VendorConflictError extends AppError {
+  constructor(message = 'Cart already has items from a different vendor', details) {
+    super(message, 409, details);
+  }
+}

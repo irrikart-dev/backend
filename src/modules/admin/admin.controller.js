@@ -25,6 +25,7 @@ export const listProducts = asyncHandler(async (req, res) => {
   const data = await catalogService.listProducts({
     search: req.query.search,
     categoryId: req.query.category,
+    vendorId: req.query.vendorId,
   });
   res.json({ success: true, data });
 });
