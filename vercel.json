@@ -1,5 +1,4 @@
 {
-  "buildCommand": "npx prisma migrate deploy && npx prisma generate",
   "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }],
   "functions": {
     "api/index.js": {
