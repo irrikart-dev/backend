@@ -60,6 +60,8 @@ model Address {
   id        String   @id @default(cuid())
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String // recipient name — required by Shiprocket's create-order API
+  phone     String // recipient phone — same
   line1     String
   line2     String?
   city      String
@@ -67,6 +69,8 @@ model Address {
   pincode   String
   isDefault Boolean  @default(false)
   createdAt DateTime @default(now())
+
+  orders Order[]
 
   @@index([userId])
   // serviceability checks and admin lookups filter by pincode directly
@@ -126,6 +130,8 @@ model Product {
   reviewCount Int       @default(0)
   inStock     Boolean   @default(true)
   active      Boolean   @default(true)
+  // YouTube URL for the PDP media viewer's demo-video slot — optional, admin-set
+  videoUrl    String?
   source      String    @default("admin") // seed | admin
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -153,6 +159,14 @@ model ProductVariant {
   price     Decimal @db.Decimal(10, 2)
   stock     Int     @default(0)
   reserved  Int     @default(0) // held by orders not yet CAPTURED; available = stock - reserved
+
+  // Shiprocket's create-order API requires per-item weight/dimensions — sane
+  // defaults so nothing blocks on missing data; admin can refine per-product
+  // later via the existing generic product-update endpoint
+  weightKg Float @default(0.5)
+  lengthCm Float @default(10)
+  widthCm  Float @default(10)
+  heightCm Float @default(10)
 
   cartItems      CartItem[]
   orderItems     OrderItem[]
@@ -276,6 +290,10 @@ model Order {
   // this cart (not "whatever the user's active cart happens to be") once payment lands
   cartId      String
   cart        Cart        @relation(fields: [cartId], references: [id])
+  // nullable so historical orders placed before addresses existed stay valid —
+  // checkout() requires one for every new order at the application level
+  addressId   String?
+  address     Address?    @relation(fields: [addressId], references: [id])
   status      OrderStatus @default(PLACED)
   totalAmount Decimal     @db.Decimal(10, 2)
   createdAt   DateTime    @default(now())

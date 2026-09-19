@@ -15,6 +15,12 @@ export default {
 
   SHIPROCKET_EMAIL: process.env.SHIPROCKET_EMAIL,
   SHIPROCKET_PASSWORD: process.env.SHIPROCKET_PASSWORD,
+  // exact "Pickup Location" nickname set up in Shiprocket's dashboard —
+  // every create-order call must reference it by this exact string
+  SHIPROCKET_PICKUP_LOCATION: process.env.SHIPROCKET_PICKUP_LOCATION,
+  // optional shared secret — set the same value as the webhook's custom header
+  // in Shiprocket's dashboard (Settings > API > Webhooks) to verify callers
+  SHIPROCKET_WEBHOOK_TOKEN: process.env.SHIPROCKET_WEBHOOK_TOKEN,
 
   FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID,
   FIREBASE_CLIENT_EMAIL: process.env.FIREBASE_CLIENT_EMAIL,

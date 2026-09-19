@@ -40,19 +40,32 @@ function toCategoryDto(c) {
   };
 }
 
+function toVariantDto(v) {
+  return {
+    id: v.id,
+    sku: v.sku,
+    size: v.size,
+    color: v.color,
+    unit: v.unit,
+    price: Number(v.price),
+    stockQty: v.stock,
+    available: v.stock - v.reserved,
+  };
+}
+
 function toProductDto(p) {
+  // variants[0]/images[0] stay the "default" shown outside the PDP (list
+  // cards, cart lines, checkout) — untouched by adding more of either, so
+  // cart/checkout keep working against whichever variantId they were given
   const variant = p.variants?.[0];
   const image = p.images?.[0];
   const price = variant ? Number(variant.price) : 0;
 
   return {
     id: p.id,
-    // Single-variant-per-product model (see the single_vendor_simplify
-    // migration) — but the cart's POST /cart/items still keys off the
-    // variant's own id, not the product's, so it has to be exposed here.
-    // Was missing entirely before this fix: the app had no way to add
-    // anything to the cart without it, since the only id it ever saw was
-    // the product's.
+    // Kept even though `variants` below now carries every option — cart's
+    // POST /cart/items and every screen that predates the PDP gallery/variant
+    // selector still expects this top-level default id.
     variantId: variant?.id ?? null,
     sku: variant?.sku ?? '',
     slug: p.slug,
@@ -62,6 +75,14 @@ function toProductDto(p) {
     image: image?.url ?? null,
     imageUrl: image?.url ?? null,
     displayImageUrl: image?.url ?? null,
+    // Full gallery/options — PDP media viewer and variant selector read these;
+    // everything else can keep ignoring them.
+    images: (p.images ?? []).map((i) => i.url),
+    // Admin-only — carries the image id the add/remove-image endpoints need,
+    // which the public `images` array (just URLs) deliberately doesn't expose.
+    galleryImages: (p.images ?? []).map((i) => ({ id: i.id, url: i.url, position: i.position })),
+    videoUrl: p.videoUrl ?? null,
+    variants: (p.variants ?? []).map(toVariantDto),
     tagline: p.tagline ?? '',
     description: p.description ?? '',
     features: p.features,
@@ -83,7 +104,8 @@ function toProductDto(p) {
 // What the mobile app sees. Derived from the admin DTO rather than built separately
 // so the two can't drift; the dropped keys are internal (see docs/app-catalog-api-contract.md).
 function toPublicProductDto(p) {
-  const { active, source, reserved, createdAt, image, displayImageUrl, ...pub } = toProductDto(p);
+  const { active, source, reserved, createdAt, image, displayImageUrl, galleryImages, ...pub } =
+    toProductDto(p);
   return pub;
 }
 
@@ -189,6 +211,7 @@ export async function createProduct(input) {
       specs: input.specs ?? [],
       inStock: input.inStock ?? true,
       active: input.active ?? true,
+      videoUrl: input.videoUrl ?? null,
       source: 'admin',
     },
     variant: {
@@ -196,6 +219,10 @@ export async function createProduct(input) {
       unit: input.unit ?? 'piece',
       price: input.price,
       stock: input.stockQty ?? 0,
+      ...(input.weightKg !== undefined ? { weightKg: input.weightKg } : {}),
+      ...(input.lengthCm !== undefined ? { lengthCm: input.lengthCm } : {}),
+      ...(input.widthCm !== undefined ? { widthCm: input.widthCm } : {}),
+      ...(input.heightCm !== undefined ? { heightCm: input.heightCm } : {}),
     },
     imageUrl: input.imageUrl ?? null,
   });
@@ -223,12 +250,22 @@ export async function updateProduct(id, input) {
       ...(input.specs !== undefined ? { specs: input.specs } : {}),
       ...(input.inStock !== undefined ? { inStock: input.inStock } : {}),
       ...(input.active !== undefined ? { active: input.active } : {}),
+      ...(input.videoUrl !== undefined ? { videoUrl: input.videoUrl } : {}),
     },
     variant:
-      input.unit !== undefined || input.price !== undefined
+      input.unit !== undefined ||
+      input.price !== undefined ||
+      input.weightKg !== undefined ||
+      input.lengthCm !== undefined ||
+      input.widthCm !== undefined ||
+      input.heightCm !== undefined
         ? {
             ...(input.unit !== undefined ? { unit: input.unit } : {}),
             ...(input.price !== undefined ? { price: input.price } : {}),
+            ...(input.weightKg !== undefined ? { weightKg: input.weightKg } : {}),
+            ...(input.lengthCm !== undefined ? { lengthCm: input.lengthCm } : {}),
+            ...(input.widthCm !== undefined ? { widthCm: input.widthCm } : {}),
+            ...(input.heightCm !== undefined ? { heightCm: input.heightCm } : {}),
           }
         : undefined,
     imageUrl: input.imageUrl,
@@ -274,6 +311,89 @@ export async function deleteProduct(id) {
   const result = await repository.deleteProduct(id);
   if (result.notFound) throw new NotFoundError('Product not found');
   await Promise.all(result.imageUrls.map(deleteImage));
+}
+
+// ---- gallery images (extra angles / in-use shots, beyond the primary image) ----
+
+export async function addProductImage(productId, { url }) {
+  const product = await repository.getProductById(productId);
+  if (!product) throw new NotFoundError('Product not found');
+  await repository.addProductImage(productId, url);
+  return getProduct(productId);
+}
+
+export async function removeProductImage(productId, imageId) {
+  const image = await repository.getImageById(imageId);
+  if (!image || image.productId !== productId) throw new NotFoundError('Image not found');
+  await repository.deleteImageById(imageId);
+  await deleteImage(image.url);
+  return getProduct(productId);
+}
+
+// ---- variants (size/pack options, beyond the primary one createProduct makes) ----
+
+export async function createProductVariant(productId, input) {
+  const product = await repository.getProductById(productId);
+  if (!product) throw new NotFoundError('Product not found');
+
+  const sku = input.sku ? await uniqueSku(input.sku) : await uniqueSku(`${product.variants[0]?.sku ?? productId}-V`);
+  const variant = await repository.createVariant(productId, {
+    sku,
+    size: input.size ?? null,
+    color: input.color ?? null,
+    unit: input.unit ?? 'piece',
+    price: input.price,
+    stock: input.stockQty ?? 0,
+    ...(input.weightKg !== undefined ? { weightKg: input.weightKg } : {}),
+    ...(input.lengthCm !== undefined ? { lengthCm: input.lengthCm } : {}),
+    ...(input.widthCm !== undefined ? { widthCm: input.widthCm } : {}),
+    ...(input.heightCm !== undefined ? { heightCm: input.heightCm } : {}),
+  });
+
+  if (variant.stock > 0) {
+    await inventoryService.recordAdjustment(variant.id, variant.stock, 'manual');
+  }
+
+  return getProduct(productId);
+}
+
+export async function updateProductVariant(productId, variantId, input) {
+  const variant = await repository.getVariantById(variantId);
+  if (!variant || variant.productId !== productId) throw new NotFoundError('Variant not found');
+
+  const delta = input.stockQty !== undefined ? input.stockQty - variant.stock : 0;
+
+  await repository.updateVariant(variantId, {
+    ...(input.size !== undefined ? { size: input.size } : {}),
+    ...(input.color !== undefined ? { color: input.color } : {}),
+    ...(input.unit !== undefined ? { unit: input.unit } : {}),
+    ...(input.price !== undefined ? { price: input.price } : {}),
+    ...(input.stockQty !== undefined ? { stock: input.stockQty } : {}),
+    ...(input.weightKg !== undefined ? { weightKg: input.weightKg } : {}),
+    ...(input.lengthCm !== undefined ? { lengthCm: input.lengthCm } : {}),
+    ...(input.widthCm !== undefined ? { widthCm: input.widthCm } : {}),
+    ...(input.heightCm !== undefined ? { heightCm: input.heightCm } : {}),
+  });
+
+  if (delta !== 0) await inventoryService.recordAdjustment(variantId, delta, 'manual');
+
+  return getProduct(productId);
+}
+
+export async function deleteProductVariant(productId, variantId) {
+  const variant = await repository.getVariantById(variantId);
+  if (!variant || variant.productId !== productId) throw new NotFoundError('Variant not found');
+
+  const product = await repository.getProductById(productId);
+  if (product.variants.length <= 1) {
+    throw new ConflictError('Cannot delete a product\'s only variant');
+  }
+  if (await repository.variantInUse(variantId)) {
+    throw new ConflictError('Variant is referenced by a cart or past order — cannot delete');
+  }
+
+  await repository.deleteVariant(variantId);
+  return getProduct(productId);
 }
 
 // ---- stats ----

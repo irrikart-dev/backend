@@ -10,6 +10,9 @@ import {
   stockSchema,
   createCategorySchema,
   updateCategorySchema,
+  addProductImageSchema,
+  createVariantSchema,
+  updateVariantSchema,
 } from './admin.validation.js';
 
 const upload = multer({
@@ -64,6 +67,21 @@ router.patch('/products/:id', validate(updateProductSchema), controller.updatePr
 router.patch('/products/:id/pricing', validate(pricingSchema), controller.updateProductPricing);
 router.patch('/products/:id/stock', validate(stockSchema), controller.updateProductStock);
 router.delete('/products/:id', controller.deleteProduct);
+
+router.post(
+  '/products/:id/images',
+  validate(addProductImageSchema),
+  controller.addProductImage
+);
+router.delete('/products/:id/images/:imageId', controller.removeProductImage);
+
+router.post('/products/:id/variants', validate(createVariantSchema), controller.createVariant);
+router.patch(
+  '/products/:id/variants/:variantId',
+  validate(updateVariantSchema),
+  controller.updateVariant
+);
+router.delete('/products/:id/variants/:variantId', controller.deleteVariant);
 
 router.get('/categories', controller.listCategories);
 router.post('/categories', validate(createCategorySchema), controller.createCategory);
