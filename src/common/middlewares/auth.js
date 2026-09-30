@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/node';
 import { firebaseAuth } from '../../config/firebase.js';
 import { prisma } from '../../config/db.js';
 import { UnauthorizedError, ForbiddenError } from '../errors/AppError.js';
@@ -31,6 +32,8 @@ export async function loadUser(req, res, next) {
     const user = await prisma.user.findUnique({ where: { firebaseUid: req.firebaseUser.uid } });
     if (!user) return next(new UnauthorizedError('No account linked to this Firebase user'));
     req.user = user;
+    // id + role only — no email/phone sent to Sentry
+    Sentry.setUser({ id: user.id, role: user.role });
     next();
   } catch (err) {
     next(err);

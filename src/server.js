@@ -1,3 +1,4 @@
+import "./instrument.js"
 import app from './app.js';
 import env from './config/env.js';
 import logger from './common/utils/logger.js';

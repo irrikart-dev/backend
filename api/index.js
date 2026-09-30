@@ -1,3 +1,5 @@
+import '../src/instrument.js'; // must be first — before app.js pulls in express/prisma
+
 // Vercel entrypoint. app.js never calls .listen() itself — Vercel invokes this
 // exported handler per request instead of running a persistent server. Local
 // dev and the Fly worker each have their own entry (src/server.js, src/worker.js);

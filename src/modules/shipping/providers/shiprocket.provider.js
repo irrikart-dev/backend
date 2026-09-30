@@ -9,8 +9,8 @@ let tokenCache = null;
 async function authenticate() {
   if (tokenCache) return tokenCache;
   const { data } = await client.post('/auth/login', {
-    email: env.SHIPROCKET_EMAIL,
-    password: env.SHIPROCKET_PASSWORD,
+    email: env.SHIPROCKET_API_EMAIL,
+    password: env.SHIPROCKET_API_PASSWORD,
   });
   tokenCache = data.token;
   return tokenCache;
