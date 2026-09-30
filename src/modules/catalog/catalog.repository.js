@@ -4,8 +4,10 @@ const productInclude = {
   category: true,
   brand: true,
   vendor: { select: { id: true, storeName: true, slug: true, status: true, razorpayAccountId: true, routeStatus: true } },
-  variants: { take: 1 },
-  images: { take: 1, orderBy: { position: 'asc' } },
+  // full lists — the DTO still treats variants[0]/images[0] as the default
+  // shown outside the PDP, but the PDP gallery/variant selector needs the rest
+  variants: { orderBy: { id: 'asc' } },
+  images: { orderBy: { position: 'asc' } },
 };
 
 // a vendor with a Route account not yet activated can't be paid out — see
@@ -139,6 +141,49 @@ export default {
     ]);
 
     return prisma.product.findUnique({ where: { id }, include: productInclude });
+  },
+
+  // ---- gallery images (beyond the single primary image createProduct/updateProduct manage) ----
+
+  async addProductImage(productId, url) {
+    const count = await prisma.productImage.count({ where: { productId } });
+    return prisma.productImage.create({ data: { productId, url, position: count } });
+  },
+
+  getImageById(imageId) {
+    return prisma.productImage.findUnique({ where: { id: imageId } });
+  },
+
+  deleteImageById(imageId) {
+    return prisma.productImage.delete({ where: { id: imageId } });
+  },
+
+  // ---- additional variants (size/pack options beyond the primary one createProduct makes) ----
+
+  createVariant(productId, data) {
+    return prisma.productVariant.create({ data: { productId, ...data } });
+  },
+
+  getVariantById(variantId) {
+    return prisma.productVariant.findUnique({ where: { id: variantId } });
+  },
+
+  updateVariant(variantId, data) {
+    return prisma.productVariant.update({ where: { id: variantId }, data });
+  },
+
+  // a variant referenced by any order/cart line is kept forever for history —
+  // block the delete instead of orphaning those rows
+  async variantInUse(variantId) {
+    const [cartCount, orderCount] = await Promise.all([
+      prisma.cartItem.count({ where: { variantId } }),
+      prisma.orderItem.count({ where: { variantId } }),
+    ]);
+    return cartCount > 0 || orderCount > 0;
+  },
+
+  deleteVariant(variantId) {
+    return prisma.productVariant.delete({ where: { id: variantId } });
   },
 
   async deleteProduct(id) {

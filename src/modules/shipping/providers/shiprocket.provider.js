@@ -26,5 +26,10 @@ export const checkServiceability = async (params) =>
 
 export const createOrder = async (payload) => client.post('/orders/create/adhoc', payload, await withAuth());
 
+// shipmentId here is Shiprocket's own id (the `shipment_id` createOrder's response
+// returns), not ours — courier assignment is auto-selected (no courier_id passed)
+export const assignAwb = async (shipmentId) =>
+  client.post('/courier/assign/awb', { shipment_id: shipmentId }, await withAuth());
+
 export const trackShipment = async (shipmentId) =>
   client.get(`/courier/track/shipment/${shipmentId}`, await withAuth());

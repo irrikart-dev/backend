@@ -10,11 +10,22 @@ const orderItemInclude = {
       },
     },
   },
+  address: true,
 };
 
 export default {
   createOrder(
-    { orderNumber, userId, cartId, vendorId, totalAmount, vendorAmount, platformAmount, items },
+    {
+      orderNumber,
+      userId,
+      cartId,
+      vendorId,
+      addressId,
+      totalAmount,
+      vendorAmount,
+      platformAmount,
+      items,
+    },
     client = prisma
   ) {
     return client.order.create({
@@ -23,6 +34,7 @@ export default {
         userId,
         cartId,
         vendorId,
+        addressId,
         totalAmount,
         vendorAmount,
         platformAmount,

@@ -6,13 +6,24 @@ import ordersRepository from '../orders/orders.repository.js';
 import cartRepository from '../cart/cart.repository.js';
 import * as inventory from '../inventory/inventory.service.js';
 import * as discounts from '../discounts/discounts.service.js';
+import * as shipping from '../shipping/shipping.service.js';
 import * as vendorsService from '../vendors/vendors.service.js';
 import logger from '../../common/utils/logger.js';
 import { BadRequestError, NotFoundError } from '../../common/errors/AppError.js';
 
 // rupees -> paise boundary — nowhere else in the app deals in paise
-export function createPaymentOrder({ amount, receipt }) {
-  return paymentProvider.createOrder({ amount: amount * 100, currency: 'INR', receipt });
+export async function createPaymentOrder({ amount, receipt }) {
+  try {
+    return await paymentProvider.createOrder({ amount: amount * 100, currency: 'INR', receipt });
+  } catch (err) {
+    // The razorpay SDK throws a plain `{statusCode, error}` object (not an Error) on
+    // an API-level rejection, and a bare TypeError if the request never got a response
+    // at all (network blip) — neither is an AppError, so errorHandler was silently
+    // downgrading both to a generic, undiagnosable 500. Surface the real reason.
+    const reason = err?.error?.description || err?.message || 'Unknown gateway error';
+    logger.error({ err, amount, receipt }, 'razorpay order creation failed');
+    throw new BadRequestError(`Payment gateway rejected this order: ${reason}`);
+  }
 }
 
 export function recordPayment(tx, { orderId, providerOrderId, amount }) {
@@ -105,16 +116,14 @@ export async function verifyPayment({ orderId, providerPaymentId, signature, use
 }
 
 async function captureOrder(payment, entity) {
-  let captured = false;
-  await prisma.$transaction(async (tx) => {
+  const justCaptured = await prisma.$transaction(async (tx) => {
     // authoritative guard — closes the race the probe above can't (two deliveries in flight at once)
     const { count } = await repository.markCaptured(
       payment.id,
       { providerPaymentId: entity.id, method: entity.method ?? null },
       tx
     );
-    if (count === 0) return;
-    captured = true;
+    if (count === 0) return false;
 
     await ordersRepository.updateStatus(payment.orderId, 'CONFIRMED', tx);
     for (const item of payment.order.items) {
@@ -123,9 +132,16 @@ async function captureOrder(payment, entity) {
     // checkout deliberately left the cart untouched (see orders.service.js) — convert it
     // now that payment is actually confirmed, not before
     await cartRepository.markConverted(payment.order.cartId, tx);
+    return true;
   });
 
-  if (captured) await transferToVendor(payment, entity);
+  if (!justCaptured) return;
+
+  // both outside the transaction — network calls (Shiprocket, Razorpay Route
+  // transfer) that must never be allowed to undo or delay the payment
+  // confirmation above. Each logs and swallows its own failures.
+  void shipping.createShipmentForOrder(payment.orderId);
+  await transferToVendor(payment, entity);
 }
 
 // splits the vendor's cut to their Razorpay Route account. Deliberately outside the

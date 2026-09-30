@@ -5,6 +5,8 @@ import cartRepository from '../cart/cart.repository.js';
 import * as inventory from '../inventory/inventory.service.js';
 import * as discounts from '../discounts/discounts.service.js';
 import * as payments from '../payments/payments.service.js';
+import * as addresses from '../addresses/addresses.service.js';
+import * as shipping from '../shipping/shipping.service.js';
 import * as vendorsService from '../vendors/vendors.service.js';
 import { BadRequestError, ConflictError, NotFoundError } from '../../common/errors/AppError.js';
 
@@ -17,7 +19,11 @@ function generateOrderNumber() {
   return `ORD-${date}-${randomBytes(3).toString('hex').toUpperCase()}`;
 }
 
-export async function checkout(userId, { couponCode } = {}) {
+export async function checkout(userId, { couponCode, addressId } = {}) {
+  if (!addressId) throw new BadRequestError('A delivery address is required');
+  const address = await addresses.findOwnedByUser(addressId, userId);
+  if (!address) throw new NotFoundError('Address not found');
+
   const cart = await cartRepository.findActiveCartWithItems(userId);
   if (!cart || cart.items.length === 0) throw new BadRequestError('Cart is empty');
 
@@ -54,6 +60,14 @@ export async function checkout(userId, { couponCode } = {}) {
   }
 
   const totalAmount = Math.max(Math.round(subtotal - discount), 0);
+  // Razorpay rejects sub-₹1 orders outright — without this guard a coupon
+  // that fully (or near-fully) offsets the subtotal sends amount:0 straight
+  // to the gateway, which throws in a way the SDK mishandles (see
+  // RazorpayProvider/payments.service.createPaymentOrder) and surfaced as an
+  // unexplained 500 with the real reason discarded.
+  if (totalAmount < 1) {
+    throw new BadRequestError('Order total must be at least ₹1 — adjust your coupon or cart');
+  }
   const orderNumber = generateOrderNumber();
 
   // split at the vendor's commission rate as of checkout time, so a later commission
@@ -74,6 +88,7 @@ export async function checkout(userId, { couponCode } = {}) {
         userId,
         cartId: cart.id,
         vendorId: cart.vendorId,
+        addressId,
         totalAmount,
         vendorAmount,
         platformAmount,
@@ -117,6 +132,9 @@ function toOrderItemDto(item) {
   const { product } = variant;
 
   return {
+    // OrderItem's own id — distinct from variantId/productId, and what a
+    // review submission (POST /reviews) needs as orderItemId.
+    id: item.id,
     variantId: variant.id,
     productId: product.id,
     name: product.title,
@@ -126,6 +144,19 @@ function toOrderItemDto(item) {
     quantity: item.quantity,
     unitPrice: Number(item.unitPrice),
     totalPrice: Number(item.totalPrice),
+  };
+}
+
+function toOrderAddressDto(address) {
+  if (!address) return null;
+  return {
+    name: address.name,
+    phone: address.phone,
+    line1: address.line1,
+    line2: address.line2,
+    city: address.city,
+    state: address.state,
+    pincode: address.pincode,
   };
 }
 
@@ -140,6 +171,7 @@ function toOrderDto(order) {
     currency: 'INR',
     createdAt: order.createdAt,
     items: order.items.map(toOrderItemDto),
+    address: toOrderAddressDto(order.address),
   };
 }
 
@@ -157,7 +189,8 @@ function toOrderSummaryDto(order) {
 export async function getOrder(userId, orderId) {
   const order = await repository.findByIdForUser(orderId, userId);
   if (!order) throw new NotFoundError('Order not found');
-  return toOrderDto(order);
+  const shipment = await shipping.getForOrder(orderId);
+  return { ...toOrderDto(order), shipment };
 }
 
 export async function listOrders(userId) {

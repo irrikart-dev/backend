@@ -27,7 +27,7 @@ export default {
   findByOrderId(orderId) {
     return prisma.payment.findFirst({
       where: { orderId },
-      include: { order: { include: { items: true } } },
+      include: { order: { include: { items: true, vendor: true } } },
     });
   },
 
