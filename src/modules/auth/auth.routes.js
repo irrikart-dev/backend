@@ -57,4 +57,21 @@ router.post('/logout-all', authenticate, controller.logoutAllDevices);
 router.get('/me', authenticate, loadUser, controller.getMe);
 router.patch('/me', authenticate, loadUser, validate(updateProfileSchema), controller.updateMe);
 
+/**
+ * @openapi
+ * /auth/account:
+ *   delete:
+ *     tags: [Auth]
+ *     summary: Permanently delete the caller's account
+ *     description: >
+ *       Erases personal data (profile, saved addresses, cart, wishlist, reviews,
+ *       RFQs, notifications) and deletes the Firebase user. Placed orders are
+ *       retained without identity for GST record-keeping. Customer accounts only.
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Account deleted }
+ *       403: { description: Admin/vendor accounts must be deleted by support }
+ */
+router.delete('/account', authenticate, controller.deleteAccount);
+
 export default router;

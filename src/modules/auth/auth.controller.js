@@ -21,3 +21,8 @@ export const updateMe = asyncHandler(async (req, res) => {
   const user = await service.updateProfile(req.user.id, req.validated.body);
   res.json({ success: true, data: user });
 });
+
+export const deleteAccount = asyncHandler(async (req, res) => {
+  await service.deleteAccount(req.firebaseUser.uid);
+  res.json({ success: true, data: { message: 'Account deleted' } });
+});
