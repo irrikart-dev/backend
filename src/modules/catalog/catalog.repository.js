@@ -16,16 +16,42 @@ const publicVendorGate = {
   OR: [{ vendor: { razorpayAccountId: null } }, { vendor: { status: 'ACTIVE', routeStatus: 'activated' } }],
 };
 
-// shared by the admin list (no `active` filter) and the app list (active only),
+// shared by the admin list (no `status` filter) and the app list (PUBLISHED only),
 // so a change to what "search" means can't drift between the two. Built as an AND of
 // independent clauses (not a flat object) so publicOnly's OR and search's OR never
 // collide by overwriting each other's `OR` key.
-function productWhere({ search, categoryId, active, vendorId, publicOnly } = {}) {
+function productWhere({
+  search,
+  categoryId,
+  status,
+  vendorId,
+  publicOnly,
+  brandId,
+  minPrice,
+  maxPrice,
+  minRating,
+  inStock,
+} = {}) {
   const clauses = [];
   if (vendorId) clauses.push({ vendorId });
   if (categoryId) clauses.push({ categoryId });
-  if (active !== undefined) clauses.push({ active });
+  if (brandId) clauses.push({ brandId });
+  if (status) clauses.push({ status });
   if (publicOnly) clauses.push(publicVendorGate);
+  if (minRating !== undefined) clauses.push({ rating: { gte: minRating } });
+  if (inStock) clauses.push({ inStock: true, variants: { some: { stock: { gt: 0 } } } });
+  if (minPrice !== undefined || maxPrice !== undefined) {
+    clauses.push({
+      variants: {
+        some: {
+          price: {
+            ...(minPrice !== undefined ? { gte: minPrice } : {}),
+            ...(maxPrice !== undefined ? { lte: maxPrice } : {}),
+          },
+        },
+      },
+    });
+  }
   if (search) {
     clauses.push({
       OR: [
@@ -73,18 +99,106 @@ export default {
 
   // ---- products ----
 
-  listProducts({ search, categoryId, active, vendorId, publicOnly, skip, take } = {}) {
+  listProducts({ skip, take, orderBy = { updatedAt: 'desc' }, ...filter } = {}) {
     return prisma.product.findMany({
-      where: productWhere({ search, categoryId, active, vendorId, publicOnly }),
+      where: productWhere(filter),
       include: productInclude,
-      orderBy: { updatedAt: 'desc' },
+      orderBy,
       ...(skip !== undefined ? { skip } : {}),
       ...(take !== undefined ? { take } : {}),
     });
   },
 
-  countProducts({ search, categoryId, active, vendorId, publicOnly } = {}) {
-    return prisma.product.count({ where: productWhere({ search, categoryId, active, vendorId, publicOnly }) });
+  countProducts(filter = {}) {
+    return prisma.product.count({ where: productWhere(filter) });
+  },
+
+  // price sort input: every matching product's id + default (first) variant price.
+  // Prisma can't orderBy a related row's column, so the caller sorts these in memory.
+  listProductPrices(filter = {}) {
+    return prisma.product.findMany({
+      where: productWhere(filter),
+      select: { id: true, variants: { select: { price: true }, orderBy: { id: 'asc' }, take: 1 } },
+    });
+  },
+
+  listProductsByIds(ids) {
+    return prisma.product.findMany({ where: { id: { in: ids } }, include: productInclude });
+  },
+
+  bulkUpdateProducts(ids, data) {
+    return prisma.product.updateMany({ where: { id: { in: ids } }, data });
+  },
+
+  // ---- brands ----
+
+  listBrands() {
+    return prisma.brand.findMany({
+      orderBy: { name: 'asc' },
+      include: { _count: { select: { products: true } } },
+    });
+  },
+
+  getBrandById(id) {
+    return prisma.brand.findUnique({ where: { id } });
+  },
+
+  getBrandBySlug(slug) {
+    return prisma.brand.findUnique({ where: { slug } });
+  },
+
+  createBrand(data) {
+    return prisma.brand.create({ data, include: { _count: { select: { products: true } } } });
+  },
+
+  updateBrand(id, data) {
+    return prisma.brand.update({ where: { id }, data, include: { _count: { select: { products: true } } } });
+  },
+
+  async deleteBrand(id) {
+    const count = await prisma.product.count({ where: { brandId: id } });
+    if (count > 0) return { blocked: true, count };
+    await prisma.brand.delete({ where: { id } });
+    return { blocked: false };
+  },
+
+  // ---- wishlist / recently viewed ----
+
+  listWishlist(userId) {
+    return prisma.wishlistItem.findMany({
+      where: { userId },
+      include: { product: { include: productInclude } },
+      orderBy: { createdAt: 'desc' },
+    });
+  },
+
+  addWishlistItem(userId, productId) {
+    return prisma.wishlistItem.upsert({
+      where: { userId_productId: { userId, productId } },
+      create: { userId, productId },
+      update: {},
+    });
+  },
+
+  removeWishlistItem(userId, productId) {
+    return prisma.wishlistItem.deleteMany({ where: { userId, productId } });
+  },
+
+  // one row per (user, product) — re-viewing moves it to the top instead of duplicating
+  recordView(userId, productId) {
+    return prisma.$transaction([
+      prisma.recentlyViewed.deleteMany({ where: { userId, productId } }),
+      prisma.recentlyViewed.create({ data: { userId, productId } }),
+    ]);
+  },
+
+  listRecentlyViewed(userId, take) {
+    return prisma.recentlyViewed.findMany({
+      where: { userId },
+      include: { product: { include: productInclude } },
+      orderBy: { viewedAt: 'desc' },
+      take,
+    });
   },
 
   getProductById(id) {
@@ -211,7 +325,7 @@ export default {
       recentlyUpdated,
     ] = await Promise.all([
       prisma.product.count(),
-      prisma.product.count({ where: { active: true } }),
+      prisma.product.count({ where: { status: 'PUBLISHED' } }),
       prisma.product.count({ where: { source: 'admin' } }),
       prisma.product.count({ where: { source: 'seed' } }),
       prisma.product.count({ where: { variants: { none: { stock: { gt: 0 } } } } }),

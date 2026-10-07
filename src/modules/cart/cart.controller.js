@@ -29,3 +29,8 @@ export const clearCart = asyncHandler(async (req, res) => {
   const data = await service.clearCart(req.user.id);
   res.json({ success: true, data });
 });
+
+export const mergeItems = asyncHandler(async (req, res) => {
+  const data = await service.mergeItems(req.user.id, req.validated.body.items);
+  res.json({ success: true, data });
+});

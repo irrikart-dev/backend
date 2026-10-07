@@ -18,6 +18,8 @@ datasource db {
 enum UserRole {
   CUSTOMER
   ADMIN
+  // internal staff with a subset of admin areas — see User.permissions
+  SUB_ADMIN
   VENDOR
 }
 
@@ -31,15 +33,20 @@ enum UserStatus {
 // authenticates against; phone/email are copied down from the verified token for
 // display/business use only, never checked at login time.
 model User {
-  id          String     @id @default(cuid())
-  firebaseUid String     @unique
-  phone       String?    @unique // customers sign in by phone; admins may be email/password-only
-  email       String?    @unique
-  name        String?
-  role        UserRole   @default(CUSTOMER)
-  status      UserStatus @default(ACTIVE)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  id                 String     @id @default(cuid())
+  firebaseUid        String     @unique
+  phone              String?    @unique // customers sign in by phone; admins may be email/password-only
+  email              String?    @unique
+  name               String?
+  role               UserRole   @default(CUSTOMER)
+  // SUB_ADMIN only: admin areas this user may open (catalog, inventory, orders,
+  // payments, vendors) — see ADMIN_PERMISSIONS in common/middlewares/auth.js
+  permissions        String[]   @default([])
+  status             UserStatus @default(ACTIVE)
+  // Razorpay customer, created lazily at first online checkout — what saved cards/UPI hang off
+  razorpayCustomerId String?    @unique
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
 
   addresses      Address[]
   deviceTokens   DeviceToken[]
@@ -152,29 +159,36 @@ model Brand {
   products Product[]
 }
 
+enum ProductStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
 model Product {
-  id          String   @id @default(cuid())
+  id          String        @id @default(cuid())
   vendorId    String
-  vendor      Vendor   @relation(fields: [vendorId], references: [id])
+  vendor      Vendor        @relation(fields: [vendorId], references: [id])
   categoryId  String
-  category    Category @relation(fields: [categoryId], references: [id])
+  category    Category      @relation(fields: [categoryId], references: [id])
   brandId     String?
-  brand       Brand?   @relation(fields: [brandId], references: [id])
+  brand       Brand?        @relation(fields: [brandId], references: [id])
   title       String
-  slug        String   @unique
+  slug        String        @unique
   tagline     String?
   description String?
-  features    String[] @default([])
+  features    String[]      @default([])
   specs       Json?
-  rating      Float    @default(0)
-  reviewCount Int      @default(0)
-  inStock     Boolean  @default(true)
-  active      Boolean  @default(true)
+  rating      Float         @default(0)
+  reviewCount Int           @default(0)
+  inStock     Boolean       @default(true)
+  // only PUBLISHED is served to the app
+  status      ProductStatus @default(PUBLISHED)
   // YouTube URL for the PDP media viewer's demo-video slot — optional, admin-set
   videoUrl    String?
-  source      String   @default("admin") // seed | admin
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  source      String        @default("admin") // seed | admin
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 
   variants       ProductVariant[]
   images         ProductImage[]
@@ -184,10 +198,10 @@ model Product {
   rfqRequests    RfqRequest[]
 
   // catalog browse: filter by category + only live products, newest first
-  @@index([categoryId, active, createdAt])
+  @@index([categoryId, status, createdAt])
   @@index([brandId])
   // vendor's own product list, and the public storefront's per-vendor storefront page
-  @@index([vendorId, active, createdAt])
+  @@index([vendorId, status, createdAt])
 }
 
 model ProductVariant {
@@ -235,9 +249,10 @@ model InventoryLedger {
   variantId String
   variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
   changeQty Int
-  reason    String // reserve | release | order | return | manual
+  reason    String // reserve | release | order | cancel | return | manual
   refType   String?
   refId     String?
+  note      String? // manual adjustments: why (received, damaged, recount...)
   createdAt DateTime       @default(now())
 
   // stock history for one SKU, most recent first
@@ -322,6 +337,9 @@ model CartItem {
 // vendorAmount to the vendor's Razorpay Route account (see payments.service.js).
 enum OrderStatus {
   PLACED
+  // online order whose last payment attempt failed — still holds its stock and can be
+  // paid again (POST /orders/:id/pay) until it expires
+  PAYMENT_FAILED
   CONFIRMED
   PACKED
   SHIPPED
@@ -330,26 +348,37 @@ enum OrderStatus {
   RETURNED
 }
 
+enum PaymentMethod {
+  ONLINE
+  COD
+}
+
 model Order {
-  id             String      @id @default(cuid())
-  orderNumber    String      @unique
+  id             String        @id @default(cuid())
+  orderNumber    String        @unique
   userId         String
-  user           User        @relation(fields: [userId], references: [id])
+  user           User          @relation(fields: [userId], references: [id])
   // the cart this order was placed from — kept so payment confirmation can convert exactly
   // this cart (not "whatever the user's active cart happens to be") once payment lands
   cartId         String
-  cart           Cart        @relation(fields: [cartId], references: [id])
+  cart           Cart          @relation(fields: [cartId], references: [id])
   vendorId       String
-  vendor         Vendor      @relation(fields: [vendorId], references: [id])
+  vendor         Vendor        @relation(fields: [vendorId], references: [id])
   // nullable so historical orders placed before addresses existed stay valid —
   // checkout() requires one for every new order at the application level
   addressId      String?
-  address        Address?    @relation(fields: [addressId], references: [id])
-  status         OrderStatus @default(PLACED)
-  totalAmount    Decimal     @db.Decimal(10, 2)
-  vendorAmount   Decimal     @db.Decimal(10, 2)
-  platformAmount Decimal     @db.Decimal(10, 2)
-  createdAt      DateTime    @default(now())
+  address        Address?      @relation(fields: [addressId], references: [id])
+  status         OrderStatus   @default(PLACED)
+  paymentMethod  PaymentMethod @default(ONLINE)
+  totalAmount    Decimal       @db.Decimal(10, 2)
+  vendorAmount   Decimal       @db.Decimal(10, 2)
+  platformAmount Decimal       @db.Decimal(10, 2)
+  // vendor has seen and taken the order — gates pack/ship, see orders.service.js
+  acceptedAt     DateTime?
+  cancelledAt    DateTime?
+  cancelledBy    String? // customer | vendor | admin | system
+  cancelReason   String?
+  createdAt      DateTime      @default(now())
 
   items        OrderItem[]
   payments     Payment[]

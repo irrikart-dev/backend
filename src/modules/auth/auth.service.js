@@ -19,3 +19,7 @@ export async function syncFirebaseUser(decodedToken) {
 export function logoutAllDevices(firebaseUid) {
   return firebaseAuth.revokeRefreshTokens(firebaseUid);
 }
+
+export function updateProfile(userId, { name }) {
+  return repository.updateName(userId, name);
+}

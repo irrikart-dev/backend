@@ -36,7 +36,7 @@ router.post('/webhook', controller.handleWebhook);
  *       second is a no-op — safe to call even if the webhook already arrived.
  *     security: [{ bearerAuth: [] }]
  *     responses:
- *       200: { description: "Current order status after verification (CONFIRMED, CANCELLED, or still PLACED if the gateway hasn't settled it yet)" }
+ *       200: { description: "Current order status after verification (CONFIRMED, PAYMENT_FAILED, or still PLACED if the gateway hasn't settled it yet)" }
  *       400: { description: Signature verification failed, or payment belongs to another order }
  *       401: { description: Missing, invalid, or revoked Firebase ID token }
  *       404: { description: No such order for this user }
@@ -48,5 +48,29 @@ router.post(
   validate(verifyPaymentSchema),
   controller.verifyPayment
 );
+
+/**
+ * @openapi
+ * /payments/methods:
+ *   get:
+ *     tags: [Payments]
+ *     summary: Cards/UPI/wallets the caller saved at checkout
+ *     description: >
+ *       Saving happens inside the gateway's checkout sheet — open it with the
+ *       `customerId` returned by POST /orders/checkout and the sheet offers to save.
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Saved methods }
+ * /payments/methods/{id}:
+ *   delete:
+ *     tags: [Payments]
+ *     summary: Remove a saved method
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       204: { description: Removed }
+ *       404: { description: No such saved method }
+ */
+router.get('/methods', authenticate, loadUser, controller.listSavedMethods);
+router.delete('/methods/:id', authenticate, loadUser, controller.deleteSavedMethod);
 
 export default router;

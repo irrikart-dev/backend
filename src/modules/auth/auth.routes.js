@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import * as controller from './auth.controller.js';
-import { authenticate } from '../../common/middlewares/auth.js';
+import { authenticate, loadUser } from '../../common/middlewares/auth.js';
+import { validate } from '../../common/middlewares/validate.js';
+import { updateProfileSchema } from './auth.validation.js';
 
 const router = Router();
 
@@ -33,5 +35,26 @@ router.post('/firebase/sync', authenticate, controller.syncFirebaseUser);
  *       200: { description: All sessions revoked }
  */
 router.post('/logout-all', authenticate, controller.logoutAllDevices);
+
+/**
+ * @openapi
+ * /auth/me:
+ *   get:
+ *     tags: [Auth]
+ *     summary: The caller's own profile
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: User }
+ *   patch:
+ *     tags: [Auth]
+ *     summary: Update the caller's display name
+ *     description: Phone and email come from Firebase and can't be changed here.
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Updated user }
+ *       400: { description: Invalid body }
+ */
+router.get('/me', authenticate, loadUser, controller.getMe);
+router.patch('/me', authenticate, loadUser, validate(updateProfileSchema), controller.updateMe);
 
 export default router;

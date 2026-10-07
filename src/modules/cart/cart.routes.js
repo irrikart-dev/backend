@@ -2,7 +2,7 @@ import { Router } from 'express';
 import * as controller from './cart.controller.js';
 import { authenticate, loadUser } from '../../common/middlewares/auth.js';
 import { validate } from '../../common/middlewares/validate.js';
-import { addItemSchema, updateItemQuantitySchema } from './cart.validation.js';
+import { addItemSchema, mergeItemsSchema, updateItemQuantitySchema } from './cart.validation.js';
 
 const router = Router();
 
@@ -43,6 +43,24 @@ router.get('/', controller.getCart);
  *       409: { description: Requested quantity exceeds what's available }
  */
 router.post('/items', validate(addItemSchema), controller.addItem);
+
+/**
+ * @openapi
+ * /cart/merge:
+ *   post:
+ *     tags: [Cart]
+ *     summary: Merge a guest cart into the caller's cart after sign-in
+ *     description: >
+ *       The app keeps a signed-out cart locally as {variantId, quantity} lines and posts
+ *       them here once the user signs in. Lines add onto the server cart the same way
+ *       POST /cart/items does. Lines that can't be added come back in `skipped` with a
+ *       reason; the rest still merge.
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: "{ cart, skipped }" }
+ *       400: { description: Invalid body }
+ */
+router.post('/merge', validate(mergeItemsSchema), controller.mergeItems);
 
 /**
  * @openapi

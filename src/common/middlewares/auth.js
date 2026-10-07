@@ -52,6 +52,19 @@ export function authorize(...allowedRoles) {
   };
 }
 
+// admin areas a SUB_ADMIN can be granted. ADMIN implicitly has all of them, plus
+// staff management, which is never delegable.
+export const ADMIN_PERMISSIONS = ['catalog', 'inventory', 'orders', 'payments', 'vendors'];
+
+// per-area gate for the admin router — runs after authorize('ADMIN', 'SUB_ADMIN')
+export function requirePermission(permission) {
+  return (req, res, next) => {
+    if (req.user?.role === 'ADMIN') return next();
+    if (req.user?.role === 'SUB_ADMIN' && req.user.permissions.includes(permission)) return next();
+    next(new ForbiddenError('Insufficient permissions'));
+  };
+}
+
 // resolves the Vendor row owned by req.user and attaches it as req.vendor. Runs after
 // authorize('VENDOR'); a VENDOR-role user with no linked Vendor row, or one that's been
 // suspended, is forbidden rather than let through with no vendor scope to act under.

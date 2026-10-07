@@ -67,7 +67,7 @@ export async function createShipmentForOrder(orderId) {
         units: item.quantity,
         selling_price: Number(item.unitPrice),
       })),
-      payment_method: 'Prepaid', // no COD anywhere in this app — Razorpay only
+      payment_method: order.paymentMethod === 'COD' ? 'COD' : 'Prepaid',
       sub_total: Number(order.totalAmount),
       length: dims.lengthCm,
       breadth: dims.widthCm,

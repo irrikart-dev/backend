@@ -4,3 +4,5 @@ export const findByFirebaseUid = (firebaseUid) => prisma.user.findUnique({ where
 
 export const createFromFirebase = ({ firebaseUid, phone, email }) =>
   prisma.user.create({ data: { firebaseUid, phone, email } });
+
+export const updateName = (id, name) => prisma.user.update({ where: { id }, data: { name } });

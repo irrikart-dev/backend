@@ -12,3 +12,12 @@ export const logoutAllDevices = asyncHandler(async (req, res) => {
   await service.logoutAllDevices(req.firebaseUser.uid);
   res.json({ success: true, data: { message: 'All sessions revoked' } });
 });
+
+export const getMe = asyncHandler(async (req, res) => {
+  res.json({ success: true, data: req.user });
+});
+
+export const updateMe = asyncHandler(async (req, res) => {
+  const user = await service.updateProfile(req.user.id, req.validated.body);
+  res.json({ success: true, data: user });
+});
