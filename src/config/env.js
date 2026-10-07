@@ -11,6 +11,15 @@ export default {
 
   PAYMENT_PROVIDER: process.env.PAYMENT_PROVIDER || 'razorpay',
 
+  // checkout / order rules
+  COD_ENABLED: process.env.COD_ENABLED !== 'false',
+  // largest order total (₹) that may be paid cash on delivery
+  COD_MAX_ORDER_AMOUNT: Number(process.env.COD_MAX_ORDER_AMOUNT || 5000),
+  // how long after placing an order the customer may still cancel it themselves
+  ORDER_CANCEL_WINDOW_HOURS: Number(process.env.ORDER_CANCEL_WINDOW_HOURS || 24),
+  // an unpaid online order holds its stock this long before it's auto-cancelled
+  ORDER_PAYMENT_TIMEOUT_MINUTES: Number(process.env.ORDER_PAYMENT_TIMEOUT_MINUTES || 30),
+
   RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID,
   RAZORPAY_KEY_SECRET: process.env.RAZORPAY_KEY_SECRET,
   RAZORPAY_WEBHOOK_SECRET: process.env.RAZORPAY_WEBHOOK_SECRET,

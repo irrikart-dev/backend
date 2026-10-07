@@ -52,7 +52,7 @@ async function main() {
   assert.equal((await get('/catalog/products?limit=500')).status, 400);
 
   // a hidden product must be indistinguishable from a missing one
-  await prisma.product.update({ where: { id: product.id }, data: { active: false } });
+  await prisma.product.update({ where: { id: product.id }, data: { status: 'DRAFT' } });
   try {
     assert.equal((await get(`/catalog/products/${product.slug}`)).status, 404, 'hidden product leaked');
     const afterHide = await get('/catalog/products?limit=100');
@@ -61,7 +61,7 @@ async function main() {
       'hidden product still listed',
     );
   } finally {
-    await prisma.product.update({ where: { id: product.id }, data: { active: true } });
+    await prisma.product.update({ where: { id: product.id }, data: { status: 'PUBLISHED' } });
   }
 
   console.log('catalog API contract: OK');

@@ -22,11 +22,13 @@ export const getStats = asyncHandler(async (req, res) => {
 // ---- products ----
 
 export const listProducts = asyncHandler(async (req, res) => {
-  const data = await catalogService.listProducts({
-    search: req.query.search,
-    categoryId: req.query.category,
-    vendorId: req.query.vendorId,
-  });
+  const { search, category, vendorId, status } = req.validated.query;
+  const data = await catalogService.listProducts({ search, categoryId: category, vendorId, status });
+  res.json({ success: true, data });
+});
+
+export const bulkUpdateProducts = asyncHandler(async (req, res) => {
+  const data = await catalogService.bulkUpdateProducts(req.validated.body);
   res.json({ success: true, data });
 });
 
@@ -112,5 +114,49 @@ export const updateCategory = asyncHandler(async (req, res) => {
 
 export const deleteCategory = asyncHandler(async (req, res) => {
   await catalogService.deleteCategory(req.params.id);
+  res.status(204).send();
+});
+
+// ---- brands ----
+
+export const listBrands = asyncHandler(async (req, res) => {
+  const data = await catalogService.listBrands();
+  res.json({ success: true, data });
+});
+
+export const createBrand = asyncHandler(async (req, res) => {
+  const data = await catalogService.createBrand(req.validated.body);
+  res.status(201).json({ success: true, data });
+});
+
+export const updateBrand = asyncHandler(async (req, res) => {
+  const data = await catalogService.updateBrand(req.params.id, req.validated.body);
+  res.json({ success: true, data });
+});
+
+export const deleteBrand = asyncHandler(async (req, res) => {
+  await catalogService.deleteBrand(req.params.id);
+  res.status(204).send();
+});
+
+// ---- staff ----
+
+export const listStaff = asyncHandler(async (req, res) => {
+  const data = await service.listStaff();
+  res.json({ success: true, data });
+});
+
+export const addStaff = asyncHandler(async (req, res) => {
+  const data = await service.addStaff(req.validated.body);
+  res.status(201).json({ success: true, data });
+});
+
+export const updateStaff = asyncHandler(async (req, res) => {
+  const data = await service.updateStaff(req.params.id, req.validated.body);
+  res.json({ success: true, data });
+});
+
+export const removeStaff = asyncHandler(async (req, res) => {
+  await service.removeStaff(req.params.id);
   res.status(204).send();
 });

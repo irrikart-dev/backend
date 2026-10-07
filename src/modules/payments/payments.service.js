@@ -5,7 +5,6 @@ import { prisma } from '../../config/db.js';
 import ordersRepository from '../orders/orders.repository.js';
 import cartRepository from '../cart/cart.repository.js';
 import * as inventory from '../inventory/inventory.service.js';
-import * as discounts from '../discounts/discounts.service.js';
 import * as shipping from '../shipping/shipping.service.js';
 import * as vendorsService from '../vendors/vendors.service.js';
 import logger from '../../common/utils/logger.js';
@@ -116,26 +115,38 @@ export async function verifyPayment({ orderId, providerPaymentId, signature, use
 }
 
 async function captureOrder(payment, entity) {
-  const justCaptured = await prisma.$transaction(async (tx) => {
+  const outcome = await prisma.$transaction(async (tx) => {
     // authoritative guard — closes the race the probe above can't (two deliveries in flight at once)
     const { count } = await repository.markCaptured(
       payment.id,
       { providerPaymentId: entity.id, method: entity.method ?? null },
       tx
     );
-    if (count === 0) return false;
+    if (count === 0) return 'duplicate';
 
-    await ordersRepository.updateStatus(payment.orderId, 'CONFIRMED', tx);
+    // the order may already be gone: expired unpaid, or cancelled by the customer, before
+    // this money landed. Its stock hold was released then, so it can't be confirmed now.
+    const { count: confirmed } = await ordersRepository.confirmIfPlaced(payment.orderId, tx);
+    if (confirmed === 0) return 'late';
+
     for (const item of payment.order.items) {
       await inventory.commitReservedStock(tx, item.variantId, item.quantity, payment.orderId);
     }
     // checkout deliberately left the cart untouched (see orders.service.js) — convert it
     // now that payment is actually confirmed, not before
     await cartRepository.markConverted(payment.order.cartId, tx);
-    return true;
+    return 'captured';
   });
 
-  if (!justCaptured) return;
+  if (outcome === 'late') {
+    logger.warn({ orderId: payment.orderId, paymentId: entity.id }, 'payment captured on a cancelled order — refunding');
+    await refundPayment(
+      { ...payment, status: 'CAPTURED', providerPaymentId: entity.id },
+      { reason: 'Payment received after the order was cancelled' }
+    );
+    return;
+  }
+  if (outcome !== 'captured') return;
 
   // both outside the transaction — network calls (Shiprocket, Razorpay Route
   // transfer) that must never be allowed to undo or delay the payment
@@ -167,15 +178,157 @@ async function transferToVendor(payment, entity) {
   }
 }
 
+// one failed attempt doesn't end the order: it moves to PAYMENT_FAILED so the customer
+// sees what happened, keeps its stock held, and can retry inside the same checkout sheet
+// (or reopen it via POST /orders/:id/pay) against the same gateway order — until it's
+// paid, cancelled, or expires (see orders.service.js expireStaleOrders).
 async function failOrder(payment, entity) {
   await prisma.$transaction(async (tx) => {
-    const { count } = await repository.markFailed(payment.id, { providerPaymentId: entity.id }, tx);
-    if (count === 0) return;
-
-    await ordersRepository.updateStatus(payment.orderId, 'CANCELLED', tx);
-    for (const item of payment.order.items) {
-      await inventory.releaseReservedStock(tx, item.variantId, item.quantity, payment.orderId);
-    }
-    await discounts.releaseUsage(tx, payment.orderId);
+    await repository.markFailed(payment.id, { providerPaymentId: entity.id }, tx);
+    await ordersRepository.markPaymentFailed(payment.orderId, tx);
   });
+}
+
+/**
+ * Full refund of an order's captured payment. Never throws — the caller has already
+ * committed the cancellation, so a gateway error is logged and left visible on the
+ * admin payments screen (captured, no refund row) for a manual retry.
+ * reverse_all pulls back the vendor's Route transfer along with the refund.
+ */
+export async function refundPayment(payment, { reason }) {
+  try {
+    const amount = Number(payment.amount);
+    const refund = await paymentProvider.refund(payment.providerPaymentId, {
+      amount: Math.round(amount * 100),
+      notes: { reason: reason.slice(0, 250) },
+      ...(payment.transferId ? { reverse_all: 1 } : {}),
+    });
+    await repository.createRefund({
+      paymentId: payment.id,
+      orderId: payment.orderId,
+      razorpayRefundId: refund.id,
+      status: refund.status ?? 'pending',
+      amount,
+    });
+    return { status: refund.status ?? 'pending' };
+  } catch (err) {
+    logger.error({ err, paymentId: payment.id, orderId: payment.orderId }, 'refund failed');
+    return { status: 'failed' };
+  }
+}
+
+export async function refundOrder(orderId, { reason }) {
+  const payment = await repository.findCapturedForOrder(orderId);
+  if (!payment) return null;
+  return refundPayment(payment, { reason });
+}
+
+// ---- saved payment methods ----
+
+/**
+ * The caller's gateway customer id, created on first use. Returns null if the gateway
+ * call fails — checkout still works, the customer just can't save a method this time.
+ */
+export async function ensureCustomer(user) {
+  if (user.razorpayCustomerId) return user.razorpayCustomerId;
+  try {
+    const customerId = await paymentProvider.createCustomer({
+      name: user.name,
+      email: user.email,
+      contact: user.phone,
+    });
+    await prisma.user.update({ where: { id: user.id }, data: { razorpayCustomerId: customerId } });
+    return customerId;
+  } catch (err) {
+    logger.error({ err, userId: user.id }, 'payment customer creation failed');
+    return null;
+  }
+}
+
+export async function listSavedMethods(user) {
+  if (!user.razorpayCustomerId) return [];
+  return paymentProvider.listSavedMethods(user.razorpayCustomerId);
+}
+
+export async function deleteSavedMethod(user, methodId) {
+  if (!user.razorpayCustomerId) throw new NotFoundError('Saved method not found');
+  try {
+    await paymentProvider.deleteSavedMethod(user.razorpayCustomerId, methodId);
+  } catch (err) {
+    if (err?.statusCode === 400 || err?.statusCode === 404) throw new NotFoundError('Saved method not found');
+    throw err;
+  }
+}
+
+// ---- admin reconciliation ----
+
+function adminWhere({ status, transferStatus, from, to, search }) {
+  const clauses = [];
+  if (status) clauses.push({ status });
+  if (transferStatus === 'none') clauses.push({ transferStatus: null });
+  else if (transferStatus) clauses.push({ transferStatus });
+  if (from) clauses.push({ createdAt: { gte: from } });
+  if (to) clauses.push({ createdAt: { lte: to } });
+  if (search) {
+    clauses.push({
+      OR: [
+        { providerOrderId: { contains: search } },
+        { providerPaymentId: { contains: search } },
+        { order: { orderNumber: { contains: search, mode: 'insensitive' } } },
+      ],
+    });
+  }
+  return clauses.length ? { AND: clauses } : {};
+}
+
+export async function listPaymentsForAdmin({ page, limit, ...filter }) {
+  const where = adminWhere(filter);
+  const [rows, total, summary] = await Promise.all([
+    repository.listForAdmin(where, { skip: (page - 1) * limit, take: limit }),
+    repository.countForAdmin(where),
+    repository.summaryForAdmin(where),
+  ]);
+
+  const statusTotals = Object.fromEntries(
+    summary.byStatus.map((g) => [g.status, { count: g._count, amount: Number(g._sum.amount ?? 0) }])
+  );
+
+  return {
+    items: rows.map((p) => {
+      const refunded = p.refunds.reduce((sum, r) => sum + Number(r.amount), 0);
+      return {
+        id: p.id,
+        orderId: p.order.id,
+        orderNumber: p.order.orderNumber,
+        orderStatus: p.order.status,
+        customer: p.order.user.name ?? p.order.user.phone ?? p.order.user.email,
+        vendor: p.order.vendor.storeName,
+        amount: Number(p.amount),
+        vendorAmount: Number(p.order.vendorAmount),
+        platformAmount: Number(p.order.platformAmount),
+        status: p.status,
+        method: p.method,
+        providerOrderId: p.providerOrderId,
+        providerPaymentId: p.providerPaymentId,
+        transferId: p.transferId,
+        transferStatus: p.transferStatus,
+        refunded,
+        // money in that isn't backed by a live order and hasn't gone back out
+        needsAttention:
+          (p.status === 'CAPTURED' && p.order.status === 'CANCELLED' && refunded < Number(p.amount)) ||
+          (p.status === 'CAPTURED' && p.transferStatus === 'failed'),
+        createdAt: p.createdAt,
+      };
+    }),
+    page,
+    limit,
+    total,
+    summary: {
+      captured: statusTotals.CAPTURED ?? { count: 0, amount: 0 },
+      failed: statusTotals.FAILED ?? { count: 0, amount: 0 },
+      pending: statusTotals.CREATED ?? { count: 0, amount: 0 },
+      refunded: Number(summary.refunded ?? 0),
+      transferFailed: summary.transferFailed,
+    },
+  };
 }

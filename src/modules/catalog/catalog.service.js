@@ -2,7 +2,7 @@ import repository from './catalog.repository.js';
 import * as inventoryService from '../inventory/inventory.service.js';
 import { deleteImage } from '../admin/admin.service.js';
 import { slugify } from '../../common/utils/slugify.js';
-import { NotFoundError, ConflictError, ForbiddenError } from '../../common/errors/AppError.js';
+import { NotFoundError, ConflictError, ForbiddenError, BadRequestError } from '../../common/errors/AppError.js';
 
 async function uniqueSlug(base) {
   let slug = base;
@@ -31,6 +31,10 @@ function toCategoryDto(c) {
     imageUrl: c.imageUrl ?? null,
     productCount: c._count?.products ?? 0,
   };
+}
+
+function toBrandDto(b) {
+  return { id: b.id, slug: b.slug, name: b.name, productCount: b._count?.products ?? 0 };
 }
 
 function toVariantDto(v) {
@@ -67,6 +71,8 @@ function toProductDto(p) {
     vendor: p.vendor ? { id: p.vendor.id, storeName: p.vendor.storeName, slug: p.vendor.slug } : null,
     category: p.categoryId,
     categoryName: p.category?.name,
+    brandId: p.brandId ?? null,
+    brandName: p.brand?.name ?? null,
     image: image?.url ?? null,
     imageUrl: image?.url ?? null,
     displayImageUrl: image?.url ?? null,
@@ -88,7 +94,7 @@ function toProductDto(p) {
     reviewCount: p.reviewCount,
     inStock: p.inStock,
     source: p.source,
-    active: p.active,
+    status: p.status,
     stockQty: variant?.stock ?? 0,
     reserved: variant?.reserved ?? 0,
     createdAt: p.createdAt,
@@ -99,17 +105,47 @@ function toProductDto(p) {
 // What the mobile app sees. Derived from the admin DTO rather than built separately
 // so the two can't drift; the dropped keys are internal (see docs/app-catalog-api-contract.md).
 function toPublicProductDto(p) {
-  const { active, source, reserved, createdAt, image, displayImageUrl, galleryImages, ...pub } =
+  const { status, source, reserved, createdAt, image, displayImageUrl, galleryImages, ...pub } =
     toProductDto(p);
   return pub;
 }
 
 // ---- app-facing catalogue (public, live products only) ----
 
-export async function listPublicProducts({ search, categoryId, page, limit }) {
-  const filter = { search, categoryId, active: true, publicOnly: true };
+const SORT_ORDER = {
+  newest: { createdAt: 'desc' },
+  rating: [{ rating: 'desc' }, { reviewCount: 'desc' }],
+  // ponytail: popularity = review count, the only per-product engagement signal stored.
+  // Switch to units sold (OrderItem sum) once there's enough order volume to mean anything.
+  popular: [{ reviewCount: 'desc' }, { rating: 'desc' }],
+};
+
+export async function listPublicProducts({ page, limit, sort, ...query }) {
+  const filter = { ...query, status: 'PUBLISHED', publicOnly: true };
+  const skip = (page - 1) * limit;
+
+  if (sort === 'price_asc' || sort === 'price_desc') {
+    // ponytail: in-memory price sort over every matching product — fine for a catalogue
+    // of a few thousand rows; move to a denormalised Product.price column past that
+    const prices = await repository.listProductPrices(filter);
+    const dir = sort === 'price_asc' ? 1 : -1;
+    const price = (p) => Number(p.variants[0]?.price ?? 0);
+    const pageIds = prices
+      .sort((a, b) => dir * (price(a) - price(b)))
+      .slice(skip, skip + limit)
+      .map((p) => p.id);
+    const rows = await repository.listProductsByIds(pageIds);
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    return {
+      items: pageIds.map((id) => byId.get(id)).filter(Boolean).map(toPublicProductDto),
+      page,
+      limit,
+      total: prices.length,
+    };
+  }
+
   const [rows, total] = await Promise.all([
-    repository.listProducts({ ...filter, skip: (page - 1) * limit, take: limit }),
+    repository.listProducts({ ...filter, orderBy: SORT_ORDER[sort], skip, take: limit }),
     repository.countProducts(filter),
   ]);
 
@@ -128,8 +164,78 @@ function isVendorSellable(vendor) {
 export async function getPublicProduct(idOrSlug) {
   const row = await repository.getProductByIdOrSlug(idOrSlug);
   // a hidden product is indistinguishable from a missing one to the app
-  if (!row || !row.active || !isVendorSellable(row.vendor)) throw new NotFoundError('Product not found');
+  if (!row || row.status !== 'PUBLISHED' || !isVendorSellable(row.vendor)) {
+    throw new NotFoundError('Product not found');
+  }
   return toPublicProductDto(row);
+}
+
+// ---- wishlist / recently viewed (caller's own; hidden products drop out silently) ----
+
+function visibleProducts(rows) {
+  return rows
+    .map((r) => r.product)
+    .filter((p) => p.status === 'PUBLISHED' && isVendorSellable(p.vendor))
+    .map(toPublicProductDto);
+}
+
+export async function listWishlist(userId) {
+  return visibleProducts(await repository.listWishlist(userId));
+}
+
+export async function addToWishlist(userId, productId) {
+  await getPublicProduct(productId);
+  await repository.addWishlistItem(userId, productId);
+  return listWishlist(userId);
+}
+
+export async function removeFromWishlist(userId, productId) {
+  await repository.removeWishlistItem(userId, productId);
+  return listWishlist(userId);
+}
+
+const RECENTLY_VIEWED_LIMIT = 20;
+
+export async function recordView(userId, productId) {
+  await getPublicProduct(productId);
+  await repository.recordView(userId, productId);
+}
+
+export async function listRecentlyViewed(userId) {
+  return visibleProducts(await repository.listRecentlyViewed(userId, RECENTLY_VIEWED_LIMIT));
+}
+
+// ---- brands ----
+
+export async function listBrands() {
+  return (await repository.listBrands()).map(toBrandDto);
+}
+
+async function uniqueSlugForBrand(base) {
+  let slug = base;
+  let n = 1;
+  while (await repository.getBrandBySlug(slug)) {
+    slug = `${base}-${++n}`;
+  }
+  return slug;
+}
+
+export async function createBrand({ name }) {
+  const slug = await uniqueSlugForBrand(slugify(name));
+  return toBrandDto(await repository.createBrand({ name, slug }));
+}
+
+export async function updateBrand(id, { name }) {
+  if (!(await repository.getBrandById(id))) throw new NotFoundError('Brand not found');
+  return toBrandDto(await repository.updateBrand(id, { name }));
+}
+
+export async function deleteBrand(id) {
+  if (!(await repository.getBrandById(id))) throw new NotFoundError('Brand not found');
+  const result = await repository.deleteBrand(id);
+  if (result.blocked) {
+    throw new ConflictError(`Brand has ${result.count} product(s) — reassign or delete them first`);
+  }
 }
 
 // ---- categories ----
@@ -215,8 +321,9 @@ export async function createProduct(input) {
       description: input.description ?? null,
       features: input.features ?? [],
       specs: input.specs ?? [],
+      brandId: input.brandId ?? null,
       inStock: input.inStock ?? true,
-      active: input.active ?? true,
+      status: input.status ?? 'PUBLISHED',
       videoUrl: input.videoUrl ?? null,
       source: 'admin',
     },
@@ -255,8 +362,9 @@ export async function updateProduct(id, input, { vendorId } = {}) {
       ...(input.description !== undefined ? { description: input.description } : {}),
       ...(input.features !== undefined ? { features: input.features } : {}),
       ...(input.specs !== undefined ? { specs: input.specs } : {}),
+      ...(input.brandId !== undefined ? { brandId: input.brandId } : {}),
       ...(input.inStock !== undefined ? { inStock: input.inStock } : {}),
-      ...(input.active !== undefined ? { active: input.active } : {}),
+      ...(input.status !== undefined ? { status: input.status } : {}),
       ...(input.videoUrl !== undefined ? { videoUrl: input.videoUrl } : {}),
     },
     variant:
@@ -291,6 +399,17 @@ export async function updateProduct(id, input, { vendorId } = {}) {
   return toProductDto(row);
 }
 
+// admin bulk edit: same fields on many products at once — status, category, brand, stock flag
+export async function bulkUpdateProducts({ ids, status, category, brandId, inStock }) {
+  const { count } = await repository.bulkUpdateProducts(ids, {
+    ...(status !== undefined ? { status } : {}),
+    ...(category !== undefined ? { categoryId: category } : {}),
+    ...(brandId !== undefined ? { brandId } : {}),
+    ...(inStock !== undefined ? { inStock } : {}),
+  });
+  return { updated: count };
+}
+
 export async function updateProductPricing(id, { price }) {
   const row = await repository.updateProduct(id, { product: {}, variant: { price } });
   if (!row) throw new NotFoundError('Product not found');
@@ -302,6 +421,10 @@ async function setStock(productId, stock) {
   if (!before) throw new NotFoundError('Product not found');
   const variant = before.variants[0];
   const delta = stock - (variant?.stock ?? 0);
+  // units held by unpaid orders can't be taken away from under them
+  if (variant && stock < variant.reserved) {
+    throw new BadRequestError(`${variant.reserved} unit(s) are reserved by pending orders — stock can't go below that`);
+  }
 
   await repository.updateProduct(productId, { product: {}, variant: { stock } });
   if (variant && delta !== 0) {
@@ -374,6 +497,9 @@ export async function updateProductVariant(productId, variantId, input) {
   if (!variant || variant.productId !== productId) throw new NotFoundError('Variant not found');
 
   const delta = input.stockQty !== undefined ? input.stockQty - variant.stock : 0;
+  if (input.stockQty !== undefined && input.stockQty < variant.reserved) {
+    throw new BadRequestError(`${variant.reserved} unit(s) are reserved by pending orders — stock can't go below that`);
+  }
 
   await repository.updateVariant(variantId, {
     ...(input.size !== undefined ? { size: input.size } : {}),

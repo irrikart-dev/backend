@@ -15,3 +15,19 @@ export const verifyPayment = asyncHandler(async (req, res) => {
   });
   res.json({ success: true, data });
 });
+
+export const listSavedMethods = asyncHandler(async (req, res) => {
+  const data = await service.listSavedMethods(req.user);
+  res.json({ success: true, data });
+});
+
+export const deleteSavedMethod = asyncHandler(async (req, res) => {
+  await service.deleteSavedMethod(req.user, req.params.id);
+  res.status(204).send();
+});
+
+// mounted under admin.routes.js (/admin/payments)
+export const listForAdmin = asyncHandler(async (req, res) => {
+  const data = await service.listPaymentsForAdmin(req.validated.query);
+  res.json({ success: true, data });
+});

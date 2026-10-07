@@ -1,5 +1,5 @@
 import repository from './cart.repository.js';
-import { NotFoundError, ConflictError, VendorConflictError } from '../../common/errors/AppError.js';
+import { AppError, NotFoundError, ConflictError, VendorConflictError } from '../../common/errors/AppError.js';
 
 function available(variant) {
   return variant.stock - variant.reserved;
@@ -128,4 +128,23 @@ export async function clearCart(userId) {
     await repository.setCartVendor(cart.id, null);
   }
   return getCart(userId);
+}
+
+/**
+ * Adds many lines at once — a guest cart the app kept locally until sign-in, or a past
+ * order being re-ordered. Best-effort per line: anything that can't be added (gone, out
+ * of stock, another vendor than what's already in the cart) is reported back in
+ * `skipped` instead of failing the whole merge.
+ */
+export async function mergeItems(userId, items) {
+  const skipped = [];
+  for (const { variantId, quantity } of items) {
+    try {
+      await addItem(userId, { variantId, quantity });
+    } catch (err) {
+      if (!(err instanceof AppError)) throw err;
+      skipped.push({ variantId, quantity, reason: err.message });
+    }
+  }
+  return { cart: await getCart(userId), skipped };
 }

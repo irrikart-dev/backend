@@ -12,6 +12,19 @@ export class PaymentProvider {
     throw new Error('refund() must be implemented');
   }
 
+  /** Gateway-side customer record that saved payment methods hang off. Returns its id. */
+  async createCustomer({ name, email, contact }) {
+    throw new Error('createCustomer() must be implemented');
+  }
+
+  async listSavedMethods(customerId) {
+    throw new Error('listSavedMethods() must be implemented');
+  }
+
+  async deleteSavedMethod(customerId, methodId) {
+    throw new Error('deleteSavedMethod() must be implemented');
+  }
+
   verifyWebhookSignature(rawBody, signature) {
     throw new Error('verifyWebhookSignature() must be implemented');
   }

@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: irrikart_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/irrikart_test
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/irrikart_test
+      # dummies — the check stubs the gateway and blocks outbound HTTP
+      RAZORPAY_KEY_ID: rzp_test_ci
+      RAZORPAY_KEY_SECRET: ci
+      SUPABASE_URL: http://localhost:1
+      SUPABASE_SECRET_KEY: ci
+      COD_MAX_ORDER_AMOUNT: 1000
+      NODE_ENV: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx prisma migrate deploy
+      - name: Syntax check
+        run: find src scripts -name '*.js' -print0 | xargs -0 -n1 node --check
+      - name: Fake Firebase service account
+        run: |
+          openssl genrsa 2048 > /tmp/key.pem
+          {
+            echo "FIREBASE_PROJECT_ID=ci"
+            echo "FIREBASE_CLIENT_EMAIL=ci@ci.iam.gserviceaccount.com"
+            echo "FIREBASE_PRIVATE_KEY=$(awk '{printf "%s\\n", $0}' /tmp/key.pem)"
+          } >> "$GITHUB_ENV"
+      - run: node scripts/check-order-flows.js
