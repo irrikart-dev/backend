@@ -33,4 +33,22 @@ export default {
       orderBy: { createdAt: 'desc' },
     });
   },
+
+  // performance: order counts/value per vendor × status × who cancelled
+  groupOrdersForPerformance(vendorId) {
+    return prisma.order.groupBy({
+      by: ['vendorId', 'status', 'cancelledBy'],
+      where: vendorId ? { vendorId } : {},
+      _count: { _all: true },
+      _sum: { totalAmount: true },
+    });
+  },
+
+  // per-product rating/reviewCount are already denormalised by reviews.repository.js
+  listRatedProducts(vendorId) {
+    return prisma.product.findMany({
+      where: { reviewCount: { gt: 0 }, ...(vendorId ? { vendorId } : {}) },
+      select: { vendorId: true, rating: true, reviewCount: true },
+    });
+  },
 };

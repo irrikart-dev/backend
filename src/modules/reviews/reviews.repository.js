@@ -28,20 +28,32 @@ export default {
     });
   },
 
-  // product page's rating/reviewCount are denormalised onto Product for the
-  // catalogue API to serve without a join — recomputed every time a review lands
+  // product page's rating/reviewCount are denormalised onto Product (and the seller's
+  // onto Vendor) for the catalogue API to serve without a join — recomputed every time
+  // a review lands or goes away
   async recomputeProductRating(productId, client = prisma) {
     const agg = await client.review.aggregate({
       where: { productId, status: 'APPROVED' },
       _avg: { rating: true },
       _count: true,
     });
-    await client.product.update({
+    const product = await client.product.update({
       where: { id: productId },
       data: {
         rating: agg._avg.rating ?? 0,
         reviewCount: agg._count,
       },
+      select: { vendorId: true },
+    });
+
+    const vendorAgg = await client.review.aggregate({
+      where: { status: 'APPROVED', product: { vendorId: product.vendorId } },
+      _avg: { rating: true },
+      _count: true,
+    });
+    await client.vendor.update({
+      where: { id: product.vendorId },
+      data: { rating: vendorAgg._avg.rating ?? 0, reviewCount: vendorAgg._count },
     });
   },
 };

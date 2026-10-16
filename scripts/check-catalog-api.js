@@ -1,5 +1,5 @@
 /**
- * Self-check for the public catalogue API (docs/app-catalog-api-contract.md).
+ * Self-check for the public catalogue API (docs/app-api-contract.md).
  * Run against a running server:  node scripts/check-catalog-api.js
  * Temporarily hides one product to prove hidden products 404, then restores it.
  */
@@ -13,10 +13,12 @@ const get = async (path) => {
   return { status: res.status, body: await res.json() };
 };
 
+// must match catalog.service.js toPublicProductDto (admin DTO minus internal keys)
 const PUBLIC_KEYS = [
-  'id', 'sku', 'slug', 'name', 'category', 'categoryName', 'imageUrl', 'tagline',
-  'description', 'features', 'specs', 'unit', 'price', 'inStock', 'stockQty',
-  'rating', 'reviewCount', 'updatedAt',
+  'id', 'variantId', 'sku', 'slug', 'name', 'vendorId', 'vendor', 'category', 'categoryName',
+  'brandId', 'brandName', 'imageUrl', 'images', 'videoUrl', 'variants', 'tagline',
+  'description', 'features', 'specs', 'unit', 'price', 'rating', 'reviewCount', 'inStock',
+  'stockQty', 'updatedAt',
 ];
 
 async function main() {

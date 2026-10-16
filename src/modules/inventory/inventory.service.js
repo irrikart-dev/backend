@@ -46,6 +46,23 @@ export async function adjustStock(variantId, { delta, note }, userId) {
   return prisma.productVariant.findUnique({ where: { id: variantId } });
 }
 
+// catalogue form's absolute "stock = N" edit. The row lock makes the reserved check and
+// the ledger delta exact even while checkouts reserve/commit the same SKU concurrently.
+export async function setStockLevel(variantId, stock) {
+  await prisma.$transaction(async (tx) => {
+    const variant = await repository.lockVariant(variantId, tx);
+    if (!variant) throw new NotFoundError('Variant not found');
+    // units held by unpaid orders can't be taken away from under them
+    if (stock < variant.reserved) {
+      throw new BadRequestError(`${variant.reserved} unit(s) are reserved by pending orders — stock can't go below that`);
+    }
+    const delta = stock - variant.stock;
+    if (delta === 0) return;
+    await tx.productVariant.update({ where: { id: variantId }, data: { stock } });
+    await repository.createLedgerEntry({ variantId, changeQty: delta, reason: 'manual' }, tx);
+  });
+}
+
 // a paid (stock-committed) order was cancelled — put its units back
 export async function restockCancelledStock(tx, variantId, quantity, orderId) {
   await repository.restock(variantId, quantity, tx);

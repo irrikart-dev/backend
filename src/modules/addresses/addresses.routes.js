@@ -45,6 +45,9 @@ router.post('/', validate(createAddressSchema), controller.create);
  *   patch:
  *     tags: [Addresses]
  *     summary: Update a saved address
+ *     description: >
+ *       If an order already uses this address, the old row is archived (the order keeps
+ *       it unchanged) and a new address is created — use the returned id from then on.
  *     security: [{ bearerAuth: [] }]
  *     responses:
  *       200: { description: Updated address }
@@ -59,7 +62,7 @@ router.patch('/:id', validate(updateAddressSchema), controller.update);
  *   delete:
  *     tags: [Addresses]
  *     summary: Delete a saved address
- *     description: Blocked if any order already references it.
+ *     description: An address an order already uses is archived instead of deleted, so the order keeps it.
  *     security: [{ bearerAuth: [] }]
  *     responses:
  *       204: { description: Deleted }

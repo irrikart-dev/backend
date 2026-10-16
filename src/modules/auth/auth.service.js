@@ -1,11 +1,13 @@
 import * as repository from './auth.repository.js';
 import { firebaseAuth } from '../../config/firebase.js';
+import * as payments from '../payments/payments.service.js';
 import { ForbiddenError } from '../../common/errors/AppError.js';
 
 // runs on POST /auth/firebase/sync — decodedToken is already verified by the
 // authenticate middleware, this just mirrors it into our own User table
 export async function syncFirebaseUser(decodedToken) {
   const existing = await repository.findByFirebaseUid(decodedToken.uid);
+  if (existing?.status === 'BLOCKED') throw new ForbiddenError('This account has been blocked. Contact IrriKart support.');
   if (existing) return existing;
 
   return repository.createFromFirebase({
@@ -30,7 +32,8 @@ export function updateProfile(userId, { name }) {
 //
 // Personal data is erased: profile fields, saved addresses not tied to an
 // order, carts that never became orders, wishlist, recently viewed, reviews,
-// RFQs, device tokens and notifications. Placed orders — with the delivery
+// RFQs, device tokens, notifications and saved payment methods (Razorpay tokens).
+// Placed orders — with the delivery
 // address they shipped to — are retained, unlinked from any identity, because
 // Indian GST law requires invoice records to be kept. The Firebase Auth user
 // is deleted last.
@@ -45,6 +48,7 @@ export async function deleteAccount(firebaseUid) {
         'Admin and vendor accounts cannot be deleted from the app. Contact IrriKart support.',
       );
     }
+    await payments.deleteAllSavedMethods(user);
     await repository.anonymiseAndPurge(user.id);
   }
 

@@ -2,6 +2,8 @@ import { Router } from 'express';
 import * as controller from './vendors.controller.js';
 import { authenticate, loadUser, authorize, loadVendor } from '../../common/middlewares/auth.js';
 import { validate } from '../../common/middlewares/validate.js';
+import { imageUpload } from '../../common/middlewares/upload.js';
+import * as adminController from '../admin/admin.controller.js';
 import { vendorCreateProductSchema } from './vendors.validation.js';
 import { updateProductSchema } from '../admin/admin.validation.js';
 import * as ordersController from '../orders/orders.controller.js';
@@ -31,6 +33,8 @@ router.get('/products/:id', controller.getMyProduct);
 router.post('/products', validate(vendorCreateProductSchema), controller.createMyProduct);
 router.patch('/products/:id', validate(updateProductSchema), controller.updateMyProduct);
 router.delete('/products/:id', controller.deleteMyProduct);
+// same upload as /admin/uploads/image — vendors need it for their own product photos
+router.post('/uploads/image', imageUpload, adminController.uploadImage);
 
 router.get('/orders', controller.listMyOrders);
 router.get('/orders/:id', controller.getMyOrder);
@@ -64,5 +68,6 @@ router.post('/orders/:id/reject', validate(cancelOrderSchema), ordersController.
 router.patch('/orders/:id/status', validate(vendorOrderStatusSchema), ordersController.updateStatusForVendor);
 
 router.get('/payouts', controller.listMyPayouts);
+router.get('/performance', controller.getMyPerformance);
 
 export default router;

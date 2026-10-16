@@ -11,6 +11,11 @@ export const listBrands = asyncHandler(async (req, res) => {
   res.json({ success: true, data });
 });
 
+export const listBanners = asyncHandler(async (req, res) => {
+  const data = await service.listBanners({ activeOnly: true });
+  res.json({ success: true, data });
+});
+
 export const listProducts = asyncHandler(async (req, res) => {
   const { category, brand, vendor, ...rest } = req.validated.query;
   const data = await service.listPublicProducts({

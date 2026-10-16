@@ -12,7 +12,7 @@ const router = Router();
  *   get:
  *     tags: [Catalog]
  *     summary: List catalogue categories
- *     description: Public. Sorted by name. See docs/app-catalog-api-contract.md.
+ *     description: Public. Sorted by name. See docs/app-api-contract.md.
  *     responses:
  *       200: { description: Categories }
  */
@@ -28,6 +28,17 @@ router.get('/categories', controller.listCategories);
  *       200: { description: Brands }
  */
 router.get('/brands', controller.listBrands);
+
+/**
+ * @openapi
+ * /catalog/banners:
+ *   get:
+ *     tags: [Catalog]
+ *     summary: Active home-screen hero banners, in display order
+ *     responses:
+ *       200: { description: Banners }
+ */
+router.get('/banners', controller.listBanners);
 
 /**
  * @openapi

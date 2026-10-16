@@ -31,6 +31,7 @@ export async function loadUser(req, res, next) {
   try {
     const user = await prisma.user.findUnique({ where: { firebaseUid: req.firebaseUser.uid } });
     if (!user) return next(new UnauthorizedError('No account linked to this Firebase user'));
+    if (user.status === 'BLOCKED') return next(new ForbiddenError('This account has been blocked. Contact IrriKart support.'));
     req.user = user;
     // id + role only — no email/phone sent to Sentry
     Sentry.setUser({ id: user.id, role: user.role });

@@ -50,6 +50,7 @@ export const anonymiseAndPurge = (userId) =>
         phone: null,
         email: null,
         name: null,
+        razorpayCustomerId: null,
         status: 'BLOCKED',
       },
     });

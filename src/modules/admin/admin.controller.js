@@ -139,6 +139,28 @@ export const deleteBrand = asyncHandler(async (req, res) => {
   res.status(204).send();
 });
 
+// ---- home banners ----
+
+export const listBanners = asyncHandler(async (req, res) => {
+  const data = await catalogService.listBanners();
+  res.json({ success: true, data });
+});
+
+export const createBanner = asyncHandler(async (req, res) => {
+  const data = await catalogService.createBanner(req.validated.body);
+  res.status(201).json({ success: true, data });
+});
+
+export const updateBanner = asyncHandler(async (req, res) => {
+  const data = await catalogService.updateBanner(req.params.id, req.validated.body);
+  res.json({ success: true, data });
+});
+
+export const deleteBanner = asyncHandler(async (req, res) => {
+  await catalogService.deleteBanner(req.params.id);
+  res.status(204).send();
+});
+
 // ---- staff ----
 
 export const listStaff = asyncHandler(async (req, res) => {
@@ -159,4 +181,21 @@ export const updateStaff = asyncHandler(async (req, res) => {
 export const removeStaff = asyncHandler(async (req, res) => {
   await service.removeStaff(req.params.id);
   res.status(204).send();
+});
+
+// ---- customers ----
+
+export const listCustomers = asyncHandler(async (req, res) => {
+  const data = await service.listCustomers(req.validated.query);
+  res.json({ success: true, data });
+});
+
+export const getCustomer = asyncHandler(async (req, res) => {
+  const data = await service.getCustomer(req.params.id);
+  res.json({ success: true, data });
+});
+
+export const setCustomerStatus = asyncHandler(async (req, res) => {
+  const data = await service.setCustomerStatus(req.params.id, req.validated.body.status);
+  res.json({ success: true, data });
 });

@@ -292,11 +292,11 @@ export async function expireStaleOrders() {
 
 const NEXT_STATUS = { CONFIRMED: 'PACKED', PACKED: 'SHIPPED', SHIPPED: 'DELIVERED' };
 
-async function advance(order, target) {
+async function advance(order, target, extra = {}) {
   if (NEXT_STATUS[order.status] !== target) {
     throw new ConflictError(`Can't move a ${order.status.toLowerCase()} order to ${target.toLowerCase()}`);
   }
-  const { count } = await repository.transition(order.id, order.status, { status: target });
+  const { count } = await repository.transition(order.id, order.status, { status: target, ...extra });
   if (count === 0) throw new ConflictError('This order was just updated — refresh and try again');
 }
 
@@ -331,7 +331,9 @@ export async function advanceOrderForVendor(vendorId, orderId, target) {
 export async function advanceOrderForAdmin(orderId, target) {
   const order = await repository.findById(orderId);
   if (!order) throw new NotFoundError('Order not found');
-  await advance(order, target);
+  // admin can pack on a silent vendor's behalf — record it as accepted then, so a
+  // PACKED order never shows as un-accepted and the vendor can't reject it afterwards
+  await advance(order, target, order.acceptedAt ? {} : { acceptedAt: new Date() });
   return getOrderForAdmin(orderId);
 }
 

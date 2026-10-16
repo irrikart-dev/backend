@@ -1,5 +1,30 @@
+import { Prisma } from '@prisma/client';
 import { AppError } from '../errors/AppError.js';
 import logger from '../utils/logger.js';
+
+// DB constraint failures that reach here are a client conflict, not a server bug —
+// services check the common cases up front with friendlier messages; this is the
+// backstop for races and anything they miss
+function fromPrisma(err) {
+  if (!(err instanceof Prisma.PrismaClientKnownRequestError)) return null;
+  switch (err.code) {
+    case 'P2002': {
+      const fields = [].concat(err.meta?.target ?? []).join(', ');
+      return { status: 409, message: fields ? `A record with this ${fields} already exists` : 'This record already exists' };
+    }
+    case 'P2003':
+      return { status: 409, message: 'This record is still referenced by other data and can\'t be removed' };
+    case 'P2025':
+      return { status: 404, message: 'Record not found' };
+    default:
+      return null;
+  }
+}
+
+const MULTER_MESSAGES = {
+  LIMIT_FILE_SIZE: 'File is too large (max 5MB)',
+  LIMIT_UNEXPECTED_FILE: 'Unexpected file field — send the image as "file"',
+};
 
 // single place that turns any thrown error into an HTTP response
 // every module funnels through this via asyncHandler -> next(err)
@@ -10,6 +35,13 @@ export function errorHandler(err, req, res, next) {
       message: err.message,
       details: err.details,
     });
+  }
+
+  const known = fromPrisma(err);
+  if (known) return res.status(known.status).json({ success: false, message: known.message });
+
+  if (err.name === 'MulterError') {
+    return res.status(400).json({ success: false, message: MULTER_MESSAGES[err.code] ?? err.message });
   }
 
   logger.error(err);

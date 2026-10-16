@@ -146,6 +146,22 @@ export const brandSchema = z.object({
   body: z.object({ name: z.string().trim().min(1).max(80) }),
 });
 
+const optionalText = (max) => z.string().trim().max(max).nullable().optional();
+
+const bannerFields = {
+  eyebrow: optionalText(40),
+  title: z.string().trim().min(1).max(80),
+  subtitle: optionalText(120),
+  ctaLabel: optionalText(30),
+  link: optionalText(200),
+  imageUrl: z.string().nullable().optional(),
+  position: z.coerce.number().int().min(0).optional(),
+  active: z.boolean().optional(),
+};
+
+export const createBannerSchema = z.object({ body: z.object(bannerFields) });
+export const updateBannerSchema = z.object({ body: z.object(bannerFields).partial() });
+
 export const listOrdersQuerySchema = z.object({
   query: z.object({
     status: z.enum(['PLACED', 'PAYMENT_FAILED', 'CONFIRMED', 'PACKED', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'RETURNED']).optional(),
@@ -188,4 +204,17 @@ export const createStaffSchema = z.object({
 
 export const updateStaffSchema = z.object({
   body: z.object({ permissions: permissionList }),
+});
+
+export const listCustomersQuerySchema = z.object({
+  query: z.object({
+    status: z.enum(['ACTIVE', 'BLOCKED']).optional(),
+    search: z.string().trim().optional(),
+    page: z.coerce.number().int().positive().default(1),
+    limit: z.coerce.number().int().positive().max(100).default(25),
+  }),
+});
+
+export const customerStatusSchema = z.object({
+  body: z.object({ status: z.enum(['ACTIVE', 'BLOCKED']) }),
 });

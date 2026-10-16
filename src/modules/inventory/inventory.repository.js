@@ -7,6 +7,12 @@ export default {
     });
   },
 
+  // SELECT … FOR UPDATE: holds the row until the caller's transaction ends
+  async lockVariant(variantId, client) {
+    const [row] = await client.$queryRaw`SELECT id, stock, reserved FROM "ProductVariant" WHERE id = ${variantId} FOR UPDATE`;
+    return row ?? null;
+  },
+
   listForVariant(variantId, take = 100) {
     return prisma.inventoryLedger.findMany({
       where: { variantId },

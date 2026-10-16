@@ -3,7 +3,18 @@ import { prisma } from '../../config/db.js';
 const productInclude = {
   category: true,
   brand: true,
-  vendor: { select: { id: true, storeName: true, slug: true, status: true, razorpayAccountId: true, routeStatus: true } },
+  vendor: {
+    select: {
+      id: true,
+      storeName: true,
+      slug: true,
+      status: true,
+      razorpayAccountId: true,
+      routeStatus: true,
+      rating: true,
+      reviewCount: true,
+    },
+  },
   // full lists — the DTO still treats variants[0]/images[0] as the default
   // shown outside the PDP, but the PDP gallery/variant selector needs the rest
   variants: { orderBy: { id: 'asc' } },
@@ -162,6 +173,31 @@ export default {
     return { blocked: false };
   },
 
+  // ---- home banners ----
+
+  listBanners({ activeOnly = false } = {}) {
+    return prisma.banner.findMany({
+      where: activeOnly ? { active: true } : {},
+      orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+    });
+  },
+
+  getBannerById(id) {
+    return prisma.banner.findUnique({ where: { id } });
+  },
+
+  createBanner(data) {
+    return prisma.banner.create({ data });
+  },
+
+  updateBanner(id, data) {
+    return prisma.banner.update({ where: { id }, data });
+  },
+
+  deleteBanner(id) {
+    return prisma.banner.delete({ where: { id } });
+  },
+
   // ---- wishlist / recently viewed ----
 
   listWishlist(userId) {
@@ -294,6 +330,20 @@ export default {
       prisma.orderItem.count({ where: { variantId } }),
     ]);
     return cartCount > 0 || orderCount > 0;
+  },
+
+  // same rule at product level — order lines and reviews are history and block deletion
+  async productInUse(productId) {
+    const [lines, reviews] = await Promise.all([
+      prisma.orderItem.count({ where: { variant: { productId } } }),
+      prisma.review.count({ where: { productId } }),
+    ]);
+    return lines > 0 || reviews > 0;
+  },
+
+  // cart lines are just intent — drop them so the product can go
+  deleteCartLinesForProduct(productId) {
+    return prisma.cartItem.deleteMany({ where: { variant: { productId } } });
   },
 
   deleteVariant(variantId) {

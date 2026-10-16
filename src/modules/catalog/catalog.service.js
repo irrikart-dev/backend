@@ -2,7 +2,7 @@ import repository from './catalog.repository.js';
 import * as inventoryService from '../inventory/inventory.service.js';
 import { deleteImage } from '../admin/admin.service.js';
 import { slugify } from '../../common/utils/slugify.js';
-import { NotFoundError, ConflictError, ForbiddenError, BadRequestError } from '../../common/errors/AppError.js';
+import { NotFoundError, ConflictError, ForbiddenError } from '../../common/errors/AppError.js';
 
 async function uniqueSlug(base) {
   let slug = base;
@@ -68,7 +68,16 @@ function toProductDto(p) {
     slug: p.slug,
     name: p.title,
     vendorId: p.vendorId,
-    vendor: p.vendor ? { id: p.vendor.id, storeName: p.vendor.storeName, slug: p.vendor.slug } : null,
+    // seller rating = average of every approved review across the vendor's products
+    vendor: p.vendor
+      ? {
+          id: p.vendor.id,
+          storeName: p.vendor.storeName,
+          slug: p.vendor.slug,
+          rating: p.vendor.rating ?? 0,
+          reviewCount: p.vendor.reviewCount ?? 0,
+        }
+      : null,
     category: p.categoryId,
     categoryName: p.category?.name,
     brandId: p.brandId ?? null,
@@ -103,7 +112,7 @@ function toProductDto(p) {
 }
 
 // What the mobile app sees. Derived from the admin DTO rather than built separately
-// so the two can't drift; the dropped keys are internal (see docs/app-catalog-api-contract.md).
+// so the two can't drift; the dropped keys are internal (see docs/app-api-contract.md).
 function toPublicProductDto(p) {
   const { status, source, reserved, createdAt, image, displayImageUrl, galleryImages, ...pub } =
     toProductDto(p);
@@ -293,6 +302,48 @@ export async function deleteCategory(id) {
   if (existing?.imageUrl) await deleteImage(existing.imageUrl);
 }
 
+// ---- home banners ----
+
+function toBannerDto(b) {
+  return {
+    id: b.id,
+    eyebrow: b.eyebrow ?? '',
+    title: b.title,
+    subtitle: b.subtitle ?? '',
+    ctaLabel: b.ctaLabel ?? '',
+    link: b.link ?? null,
+    imageUrl: b.imageUrl ?? null,
+    position: b.position,
+    active: b.active,
+  };
+}
+
+// app reads activeOnly; the admin list shows hidden ones too
+export async function listBanners({ activeOnly = false } = {}) {
+  return (await repository.listBanners({ activeOnly })).map(toBannerDto);
+}
+
+export async function createBanner(input) {
+  return toBannerDto(await repository.createBanner(input));
+}
+
+export async function updateBanner(id, input) {
+  const existing = await repository.getBannerById(id);
+  if (!existing) throw new NotFoundError('Banner not found');
+  const banner = await repository.updateBanner(id, input);
+  if (input.imageUrl !== undefined && existing.imageUrl && existing.imageUrl !== input.imageUrl) {
+    await deleteImage(existing.imageUrl);
+  }
+  return toBannerDto(banner);
+}
+
+export async function deleteBanner(id) {
+  const existing = await repository.getBannerById(id);
+  if (!existing) throw new NotFoundError('Banner not found');
+  await repository.deleteBanner(id);
+  if (existing.imageUrl) await deleteImage(existing.imageUrl);
+}
+
 // ---- products ----
 
 export async function listProducts(query) {
@@ -353,6 +404,9 @@ export async function updateProduct(id, input, { vendorId } = {}) {
   if (!before) throw new NotFoundError('Product not found');
   if (vendorId && before.vendorId !== vendorId) throw new ForbiddenError('Not your product');
 
+  // first, so a stock value below what's reserved rejects the edit before anything is saved
+  if (input.stockQty !== undefined) await setStock(id, input.stockQty);
+
   const row = await repository.updateProduct(id, {
     product: {
       ...(input.category !== undefined ? { categoryId: input.category } : {}),
@@ -391,11 +445,6 @@ export async function updateProduct(id, input, { vendorId } = {}) {
     await deleteImage(oldImageUrl);
   }
 
-  if (input.stockQty !== undefined) {
-    await setStock(id, input.stockQty);
-    return getProduct(id);
-  }
-
   return toProductDto(row);
 }
 
@@ -416,20 +465,12 @@ export async function updateProductPricing(id, { price }) {
   return toProductDto(row);
 }
 
+// the default (first) variant's stock — the single-SKU product form's stock field
 async function setStock(productId, stock) {
   const before = await repository.getProductById(productId);
   if (!before) throw new NotFoundError('Product not found');
   const variant = before.variants[0];
-  const delta = stock - (variant?.stock ?? 0);
-  // units held by unpaid orders can't be taken away from under them
-  if (variant && stock < variant.reserved) {
-    throw new BadRequestError(`${variant.reserved} unit(s) are reserved by pending orders — stock can't go below that`);
-  }
-
-  await repository.updateProduct(productId, { product: {}, variant: { stock } });
-  if (variant && delta !== 0) {
-    await inventoryService.recordAdjustment(variant.id, delta, 'manual');
-  }
+  if (variant) await inventoryService.setStockLevel(variant.id, stock);
 }
 
 export async function updateProductStock(id, { stock }) {
@@ -443,6 +484,10 @@ export async function deleteProduct(id, { vendorId } = {}) {
     if (!existing) throw new NotFoundError('Product not found');
     if (existing.vendorId !== vendorId) throw new ForbiddenError('Not your product');
   }
+  if (await repository.productInUse(id)) {
+    throw new ConflictError('This product has orders or reviews — archive it instead of deleting');
+  }
+  await repository.deleteCartLinesForProduct(id);
   const result = await repository.deleteProduct(id);
   if (result.notFound) throw new NotFoundError('Product not found');
   await Promise.all(result.imageUrls.map(deleteImage));
@@ -496,24 +541,18 @@ export async function updateProductVariant(productId, variantId, input) {
   const variant = await repository.getVariantById(variantId);
   if (!variant || variant.productId !== productId) throw new NotFoundError('Variant not found');
 
-  const delta = input.stockQty !== undefined ? input.stockQty - variant.stock : 0;
-  if (input.stockQty !== undefined && input.stockQty < variant.reserved) {
-    throw new BadRequestError(`${variant.reserved} unit(s) are reserved by pending orders — stock can't go below that`);
-  }
+  if (input.stockQty !== undefined) await inventoryService.setStockLevel(variantId, input.stockQty);
 
   await repository.updateVariant(variantId, {
     ...(input.size !== undefined ? { size: input.size } : {}),
     ...(input.color !== undefined ? { color: input.color } : {}),
     ...(input.unit !== undefined ? { unit: input.unit } : {}),
     ...(input.price !== undefined ? { price: input.price } : {}),
-    ...(input.stockQty !== undefined ? { stock: input.stockQty } : {}),
     ...(input.weightKg !== undefined ? { weightKg: input.weightKg } : {}),
     ...(input.lengthCm !== undefined ? { lengthCm: input.lengthCm } : {}),
     ...(input.widthCm !== undefined ? { widthCm: input.widthCm } : {}),
     ...(input.heightCm !== undefined ? { heightCm: input.heightCm } : {}),
   });
-
-  if (delta !== 0) await inventoryService.recordAdjustment(variantId, delta, 'manual');
 
   return getProduct(productId);
 }

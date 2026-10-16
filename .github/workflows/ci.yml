@@ -46,3 +46,8 @@ jobs:
             echo "FIREBASE_PRIVATE_KEY=$(awk '{printf "%s\\n", $0}' /tmp/key.pem)"
           } >> "$GITHUB_ENV"
       - run: node scripts/check-order-flows.js
+      # offline (repository-stubbed) checks — no DB or network
+      - run: node scripts/check-addresses.js
+      - run: node scripts/check-errors.js
+      - run: node scripts/check-rfq.js
+      - run: node scripts/check-admin-analytics.js

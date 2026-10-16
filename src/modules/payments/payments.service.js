@@ -260,6 +260,19 @@ export async function deleteSavedMethod(user, methodId) {
   }
 }
 
+// account deletion: drop every card/UPI token saved with the gateway. Best-effort —
+// a gateway outage mustn't block the user's right to delete; failures are logged so
+// support can clear them by hand.
+export async function deleteAllSavedMethods(user) {
+  if (!user.razorpayCustomerId) return;
+  try {
+    const methods = await paymentProvider.listSavedMethods(user.razorpayCustomerId);
+    for (const m of methods) await paymentProvider.deleteSavedMethod(user.razorpayCustomerId, m.id);
+  } catch (err) {
+    logger.error({ err, userId: user.id }, 'could not delete saved payment methods on account deletion');
+  }
+}
+
 // ---- admin reconciliation ----
 
 function adminWhere({ status, transferStatus, from, to, search }) {

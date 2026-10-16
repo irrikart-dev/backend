@@ -77,6 +77,10 @@ model Address {
   state     String
   pincode   String
   isDefault Boolean  @default(false)
+  // set instead of editing/deleting an address an order already shipped to, so the
+  // order (and its invoice) keeps the exact address — archived rows are hidden from
+  // the user and can't be checked out to again
+  archivedAt DateTime?
   createdAt DateTime @default(now())
 
   orders Order[]
@@ -122,6 +126,10 @@ model Vendor {
   contactPhone      String?
   razorpayAccountId String?      @unique
   routeStatus       String? // raw activation_status from Razorpay's accounts.fetch, e.g. activated | under_review
+  // average over every approved review of this vendor's products — denormalised like
+  // Product.rating so the catalogue serves it without a join, see reviews.repository.js
+  rating            Float        @default(0)
+  reviewCount       Int          @default(0)
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
 
@@ -157,6 +165,24 @@ model Brand {
   name     String
   slug     String    @unique
   products Product[]
+}
+
+// home-screen hero carousel in the app — all copy/image/link editable from the
+// admin panel. `link` is an app route the CTA opens (e.g. /category/kits).
+model Banner {
+  id        String   @id @default(cuid())
+  eyebrow   String?
+  title     String
+  subtitle  String?
+  ctaLabel  String?
+  link      String?
+  imageUrl  String?
+  position  Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active, position])
 }
 
 enum ProductStatus {
@@ -501,19 +527,30 @@ model ShipmentTrackingEvent {
 // rfq — src/modules/rfq
 // ============================================================
 
+// staff triage label only — any status can move to any other
+enum RfqStatus {
+  NEW
+  CONTACTED
+  CLOSED
+}
+
+// a bulk-quote lead, not an order: staff follow up by email/phone outside the app
 model RfqRequest {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   userId       String
-  user         User     @relation(fields: [userId], references: [id])
+  user         User      @relation(fields: [userId], references: [id])
   productId    String?
-  product      Product? @relation(fields: [productId], references: [id])
+  product      Product?  @relation(fields: [productId], references: [id])
   quantity     Int
   requirements String?
-  targetPrice  Decimal? @db.Decimal(10, 2)
-  createdAt    DateTime @default(now())
+  targetPrice  Decimal?  @db.Decimal(10, 2)
+  status       RfqStatus @default(NEW)
+  // internal follow-up notes — never shown to the customer
+  adminNote    String?
+  createdAt    DateTime  @default(now())
 
-  // admin RFQ inbox, newest first
-  @@index([createdAt])
+  // admin RFQ inbox: filter by status, newest first
+  @@index([status, createdAt])
   @@index([userId])
 }
 
@@ -535,6 +572,9 @@ model Coupon {
   usageLimit   Int?
   perUserLimit Int?
   expiresAt    DateTime?
+  // switched off from the admin panel instead of deleting — used coupons are
+  // referenced by CouponUsage rows and can't be removed
+  active       Boolean    @default(true)
   createdAt    DateTime   @default(now())
 
   usages CouponUsage[]

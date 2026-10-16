@@ -1,12 +1,14 @@
 import { Router } from 'express';
-import multer from 'multer';
 import * as controller from './admin.controller.js';
 import * as vendorsController from '../vendors/vendors.controller.js';
 import * as ordersController from '../orders/orders.controller.js';
 import * as paymentsController from '../payments/payments.controller.js';
 import * as inventoryController from '../inventory/inventory.controller.js';
+import * as discountsController from '../discounts/discounts.controller.js';
+import * as rfqController from '../rfq/rfq.controller.js';
 import { authenticate, loadUser, authorize, requirePermission } from '../../common/middlewares/auth.js';
 import { validate } from '../../common/middlewares/validate.js';
+import { imageUpload } from '../../common/middlewares/upload.js';
 import {
   createProductSchema,
   updateProductSchema,
@@ -20,21 +22,21 @@ import {
   bulkUpdateProductsSchema,
   listProductsQuerySchema,
   brandSchema,
+  createBannerSchema,
+  updateBannerSchema,
   listOrdersQuerySchema,
   orderStatusSchema,
   listPaymentsQuerySchema,
   stockAdjustmentSchema,
   createStaffSchema,
   updateStaffSchema,
+  listCustomersQuerySchema,
+  customerStatusSchema,
 } from './admin.validation.js';
+import { createCouponSchema, updateCouponSchema } from '../discounts/discounts.validation.js';
+import { listRfqQuerySchema, updateRfqSchema } from '../rfq/rfq.validation.js';
 import { cancelOrderSchema } from '../orders/orders.validation.js';
 import { createVendorSchema, updateVendorSchema } from '../vendors/vendors.validation.js';
-
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => cb(null, file.mimetype.startsWith('image/')),
-});
 
 const router = Router();
 
@@ -45,17 +47,19 @@ router.use(authenticate, loadUser, authorize('ADMIN', 'SUB_ADMIN'));
 // staff, who need the product list to do their job.
 const catalog = requirePermission('catalog');
 const inventory = requirePermission('inventory');
+const catalogOrInventory = (req, res, next) => catalog(req, res, (err) => (err ? inventory(req, res, next) : next()));
 router.use('/products', (req, res, next) => {
   const sharedWithInventory = req.method === 'GET' || req.path.endsWith('/stock');
-  if (!sharedWithInventory) return catalog(req, res, next);
-  catalog(req, res, (err) => (err ? inventory(req, res, next) : next()));
+  return sharedWithInventory ? catalogOrInventory(req, res, next) : catalog(req, res, next);
 });
-router.use(['/uploads', '/categories', '/brands'], catalog);
+// catalogue counts and inventory value — nothing an orders/payments-only sub-admin needs
+router.use('/stats', catalogOrInventory);
+router.use(['/uploads', '/categories', '/brands', '/banners'], catalog);
 router.use('/inventory', inventory);
-router.use('/orders', requirePermission('orders'));
+router.use(['/orders', '/rfq'], requirePermission('orders'));
 router.use('/payments', requirePermission('payments'));
 router.use('/vendors', requirePermission('vendors'));
-router.use('/staff', authorize('ADMIN'));
+router.use(['/staff', '/customers', '/coupons'], authorize('ADMIN'));
 
 /**
  * @openapi
@@ -74,7 +78,7 @@ router.use('/staff', authorize('ADMIN'));
  *       401: { description: Missing, invalid, or revoked Firebase ID token }
  *       403: { description: Not an admin }
  */
-router.post('/uploads/image', upload.single('file'), controller.uploadImage);
+router.post('/uploads/image', imageUpload, controller.uploadImage);
 
 /**
  * @openapi
@@ -126,6 +130,11 @@ router.get('/brands', controller.listBrands);
 router.post('/brands', validate(brandSchema), controller.createBrand);
 router.patch('/brands/:id', validate(brandSchema), controller.updateBrand);
 router.delete('/brands/:id', controller.deleteBrand);
+
+router.get('/banners', controller.listBanners);
+router.post('/banners', validate(createBannerSchema), controller.createBanner);
+router.patch('/banners/:id', validate(updateBannerSchema), controller.updateBanner);
+router.delete('/banners/:id', controller.deleteBanner);
 
 /**
  * @openapi
@@ -250,9 +259,100 @@ router.delete('/staff/:id', controller.removeStaff);
  *       400: { description: Invalid body, no User for that email yet, or bad Razorpay account id }
  */
 router.get('/vendors', vendorsController.listVendors);
+// before /vendors/:id, or "performance" would match as an id
+router.get('/vendors/performance', vendorsController.listPerformance);
 router.get('/vendors/:id', vendorsController.getVendor);
 router.post('/vendors', validate(createVendorSchema), vendorsController.createVendor);
 router.patch('/vendors/:id', validate(updateVendorSchema), vendorsController.updateVendor);
 router.post('/vendors/:id/route-status/refresh', vendorsController.refreshRouteStatus);
+
+/**
+ * @openapi
+ * /admin/vendors/performance:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Per-vendor rating, order counts, GMV, rejection and return rates
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: One row per vendor with any orders or reviews }
+ * /admin/customers:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Customer accounts — search name/phone/email, filter by status (ADMIN only)
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: "{ items, page, limit, total }" }
+ * /admin/customers/{id}:
+ *   get:
+ *     tags: [Admin]
+ *     summary: One customer with addresses and their last 20 orders
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Customer }
+ * /admin/customers/{id}/status:
+ *   patch:
+ *     tags: [Admin]
+ *     summary: Block or unblock a customer — a blocked account gets 403 on every signed-in request
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Customer }
+ * /admin/coupons:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Coupons with usage analytics (uses, unique customers, discount given, revenue)
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Coupons }
+ *   post:
+ *     tags: [Admin]
+ *     summary: Create a coupon — code is stored upper-case, matched case-insensitively at checkout
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       201: { description: Coupon }
+ *       409: { description: Code already exists }
+ * /admin/coupons/{id}:
+ *   delete:
+ *     tags: [Admin]
+ *     summary: Delete an unused coupon
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       204: { description: Deleted }
+ *       409: { description: Coupon has been used — deactivate it instead }
+ */
+router.get('/customers', validate(listCustomersQuerySchema), controller.listCustomers);
+router.get('/customers/:id', controller.getCustomer);
+router.patch('/customers/:id/status', validate(customerStatusSchema), controller.setCustomerStatus);
+
+router.get('/coupons', discountsController.listCoupons);
+router.post('/coupons', validate(createCouponSchema), discountsController.createCoupon);
+router.patch('/coupons/:id', validate(updateCouponSchema), discountsController.updateCoupon);
+router.delete('/coupons/:id', discountsController.deleteCoupon);
+
+/**
+ * @openapi
+ * /admin/rfq:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Quote-request inbox — filter by status, search customer/product/requirements
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: "{ items, page, limit, total }" }
+ * /admin/rfq/{id}:
+ *   get:
+ *     tags: [Admin]
+ *     summary: One quote request with customer contact details
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Quote request }
+ *   patch:
+ *     tags: [Admin]
+ *     summary: Set status (NEW, CONTACTED, CLOSED) and/or the internal follow-up note
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Quote request }
+ */
+router.get('/rfq', validate(listRfqQuerySchema), rfqController.listForAdmin);
+router.get('/rfq/:id', rfqController.getForAdmin);
+router.patch('/rfq/:id', validate(updateRfqSchema), rfqController.updateForAdmin);
 
 export default router;

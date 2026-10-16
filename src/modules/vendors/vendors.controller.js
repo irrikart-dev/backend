@@ -10,6 +10,11 @@ export const listVendors = asyncHandler(async (req, res) => {
   res.json({ success: true, data });
 });
 
+export const listPerformance = asyncHandler(async (req, res) => {
+  const data = await service.listPerformance();
+  res.json({ success: true, data });
+});
+
 export const getVendor = asyncHandler(async (req, res) => {
   const data = await service.getVendor(req.params.id);
   res.json({ success: true, data });
@@ -74,5 +79,10 @@ export const getMyOrder = asyncHandler(async (req, res) => {
 
 export const listMyPayouts = asyncHandler(async (req, res) => {
   const data = await service.listPayouts(req.vendor.id);
+  res.json({ success: true, data });
+});
+
+export const getMyPerformance = asyncHandler(async (req, res) => {
+  const data = await service.getPerformance(req.vendor.id);
   res.json({ success: true, data });
 });

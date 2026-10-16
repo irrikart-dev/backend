@@ -2,7 +2,7 @@ import repository from './vendors.repository.js';
 import { routeProvider } from './providers/razorpayRoute.provider.js';
 import { prisma } from '../../config/db.js';
 import { slugify } from '../../common/utils/slugify.js';
-import { NotFoundError, BadRequestError } from '../../common/errors/AppError.js';
+import { NotFoundError, BadRequestError, ConflictError } from '../../common/errors/AppError.js';
 
 async function uniqueSlug(base) {
   let slug = base;
@@ -73,6 +73,11 @@ export async function createVendor(input) {
     throw new BadRequestError(
       'No account found for that email yet — the vendor must sign in once before being added'
     );
+  }
+  // promoting to VENDOR would silently strip an admin/sub-admin's access, and a user
+  // can own only one store (Vendor.ownerUserId is unique)
+  if (ownerUser.role !== 'CUSTOMER') {
+    throw new ConflictError(`That account is already a ${ownerUser.role.toLowerCase().replace('_', '-')} — use a separate login for the store`);
   }
 
   const routeStatus = await verifyRazorpayAccount(input.razorpayAccountId);
@@ -145,4 +150,64 @@ export async function listPayouts(vendorId) {
     transferStatus: p.transferStatus,
     createdAt: p.createdAt,
   }));
+}
+
+// ---- performance ----
+
+const IN_FLIGHT = ['CONFIRMED', 'PACKED', 'SHIPPED'];
+
+/**
+ * Rating and fulfilment stats per vendor. Only orders the vendor was on the hook for
+ * count — unpaid orders, and ones the customer/admin/system cancelled, say nothing about
+ * the vendor. Rates are 0–1 over those orders; rating is the review-weighted average
+ * across the vendor's products.
+ */
+export async function listPerformance(vendorId) {
+  const [groups, products] = await Promise.all([
+    repository.groupOrdersForPerformance(vendorId),
+    repository.listRatedProducts(vendorId),
+  ]);
+
+  const byVendor = new Map();
+  const get = (id) => {
+    if (!byVendor.has(id)) {
+      byVendor.set(id, { vendorId: id, delivered: 0, inFlight: 0, rejected: 0, returned: 0, gmv: 0, ratingSum: 0, reviewCount: 0 });
+    }
+    return byVendor.get(id);
+  };
+
+  for (const g of groups) {
+    const s = get(g.vendorId);
+    const n = g._count._all;
+    if (g.status === 'DELIVERED') s.delivered += n;
+    else if (IN_FLIGHT.includes(g.status)) s.inFlight += n;
+    else if (g.status === 'RETURNED') s.returned += n;
+    else if (g.status === 'CANCELLED' && g.cancelledBy === 'vendor') s.rejected += n;
+    if (g.status === 'DELIVERED' || IN_FLIGHT.includes(g.status)) s.gmv += Number(g._sum.totalAmount ?? 0);
+  }
+  for (const p of products) {
+    const s = get(p.vendorId);
+    s.ratingSum += p.rating * p.reviewCount;
+    s.reviewCount += p.reviewCount;
+  }
+
+  return [...byVendor.values()].map(({ ratingSum, ...s }) => {
+    const orders = s.delivered + s.inFlight + s.rejected + s.returned;
+    const rate = (n) => (orders ? Math.round((n / orders) * 1000) / 1000 : 0);
+    return {
+      ...s,
+      orders,
+      gmv: Math.round(s.gmv),
+      rating: s.reviewCount ? Math.round((ratingSum / s.reviewCount) * 10) / 10 : null,
+      rejectionRate: rate(s.rejected),
+      returnRate: rate(s.returned),
+    };
+  });
+}
+
+export async function getPerformance(vendorId) {
+  const [row] = await listPerformance(vendorId);
+  return (
+    row ?? { vendorId, delivered: 0, inFlight: 0, rejected: 0, returned: 0, gmv: 0, reviewCount: 0, orders: 0, rating: null, rejectionRate: 0, returnRate: 0 }
+  );
 }
