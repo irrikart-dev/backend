@@ -164,16 +164,23 @@ export async function listPublicProducts({ page, limit, sort, ...query }) {
 // a vendor with a Route account that isn't activated yet can't be paid out, so their
 // products stay unlisted until it is (see routeStatus on Vendor). The platform's own
 // system vendor has no razorpayAccountId and is exempt from this gate.
-function isVendorSellable(vendor) {
+export function isVendorSellable(vendor) {
   if (!vendor) return false;
   if (!vendor.razorpayAccountId) return true;
   return vendor.status === 'ACTIVE' && vendor.routeStatus === 'activated';
 }
 
+// the one rule for "can a customer buy this right now" — catalogue visibility, cart
+// adds and checkout all go through it, so an unpublished product or an unpayable
+// vendor can't be bought just because it was carted before it was hidden
+export function isProductSellable(product, vendor) {
+  return product?.status === 'PUBLISHED' && isVendorSellable(vendor);
+}
+
 export async function getPublicProduct(idOrSlug) {
   const row = await repository.getProductByIdOrSlug(idOrSlug);
   // a hidden product is indistinguishable from a missing one to the app
-  if (!row || row.status !== 'PUBLISHED' || !isVendorSellable(row.vendor)) {
+  if (!row || !isProductSellable(row, row.vendor)) {
     throw new NotFoundError('Product not found');
   }
   return toPublicProductDto(row);
@@ -184,7 +191,7 @@ export async function getPublicProduct(idOrSlug) {
 function visibleProducts(rows) {
   return rows
     .map((r) => r.product)
-    .filter((p) => p.status === 'PUBLISHED' && isVendorSellable(p.vendor))
+    .filter((p) => isProductSellable(p, p.vendor))
     .map(toPublicProductDto);
 }
 

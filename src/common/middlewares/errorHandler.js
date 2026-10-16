@@ -40,6 +40,13 @@ export function errorHandler(err, req, res, next) {
   const known = fromPrisma(err);
   if (known) return res.status(known.status).json({ success: false, message: known.message });
 
+  // express.json (body-parser) client errors — malformed JSON, oversize body, bad
+  // charset — carry a 4xx status and expose:true
+  if (typeof err.type === 'string' && err.expose && err.status >= 400 && err.status < 500) {
+    const message = err.type === 'entity.parse.failed' ? 'Malformed JSON body' : err.message;
+    return res.status(err.status).json({ success: false, message });
+  }
+
   if (err.name === 'MulterError') {
     return res.status(400).json({ success: false, message: MULTER_MESSAGES[err.code] ?? err.message });
   }

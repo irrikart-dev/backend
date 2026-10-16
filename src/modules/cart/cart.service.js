@@ -1,8 +1,16 @@
 import repository from './cart.repository.js';
+import { isProductSellable } from '../catalog/catalog.service.js';
 import { AppError, NotFoundError, ConflictError, VendorConflictError } from '../../common/errors/AppError.js';
 
 function available(variant) {
   return variant.stock - variant.reserved;
+}
+
+const purchasable = (variant) => isProductSellable(variant.product, variant.product.vendor);
+
+// unpublished product or unpayable vendor — same 404 the catalogue gives a hidden product
+function assertPurchasable(variant) {
+  if (!purchasable(variant)) throw new NotFoundError('This product is no longer available');
 }
 
 function toCartItemDto(item) {
@@ -22,7 +30,10 @@ function toCartItemDto(item) {
     quantity: item.quantity,
     price,
     lineTotal: price * item.quantity,
-    available: available(variant),
+    // false once the product is hidden or its seller can't be paid — checkout will refuse
+    // the cart until the line is removed
+    purchasable: purchasable(variant),
+    available: purchasable(variant) ? available(variant) : 0,
   };
 }
 
@@ -54,6 +65,7 @@ export async function getCart(userId) {
 export async function addItem(userId, { variantId, quantity }) {
   const variant = await repository.findVariantById(variantId);
   if (!variant) throw new NotFoundError('Product variant not found');
+  assertPurchasable(variant);
 
   const cart = await getOrCreateActiveCart(userId);
   const newVendorId = variant.product.vendorId;
@@ -103,6 +115,7 @@ export async function updateItemQuantity(userId, itemId, quantity) {
 
   const variant = await repository.findVariantById(item.variantId);
   if (!variant) throw new NotFoundError('Product variant not found');
+  assertPurchasable(variant);
   if (quantity > available(variant)) {
     throw new ConflictError(`Only ${available(variant)} of this item available`);
   }

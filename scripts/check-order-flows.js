@@ -103,6 +103,8 @@ const cod = await orders.checkout(user, { addressId: address.id, paymentMethod: 
 assert.equal(cod.status, 'CONFIRMED');
 assert.equal((await variantRow(cheap.variantId)).stock, 48);
 assert.equal((await cart.getCart(user.id)).itemCount, 0);
+// a hidden product can't be carted
+await assert.rejects(cart.addItem(user.id, { variantId: draft.variantId, quantity: 1 }), /no longer available/i);
 await cart.addItem(user.id, { variantId: pricey.variantId, quantity: 5 });
 await assert.rejects(orders.checkout(user, { addressId: address.id, paymentMethod: 'COD' }), /Cash on delivery is available on orders up to/);
 
@@ -120,6 +122,8 @@ await webhook('payment.captured', online.providerOrderId, `pay_ok_${tag}`);
 o = await orders.getOrder(user.id, online.orderId);
 assert.equal(o.status, 'CONFIRMED');
 assert.equal(o.paymentStatus, 'CAPTURED');
+assert.ok(!('vendorAmount' in o) && !('platformAmount' in o), 'commission split leaked to customer');
+assert.equal(typeof (await orders.getOrderForAdmin(online.orderId)).vendorAmount, 'number');
 assert.deepEqual(await variantRow(pricey.variantId).then((v) => [v.stock, v.reserved]), [0, 0]);
 
 // ---- invoice ----

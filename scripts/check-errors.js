@@ -20,6 +20,10 @@ assert.equal(respond(prismaError('P2003')).code, 409);
 assert.equal(respond(prismaError('P2025')).code, 404);
 assert.equal(respond(Object.assign(new Error('File too large'), { name: 'MulterError', code: 'LIMIT_FILE_SIZE' })).code, 400);
 assert.equal(respond(new NotFoundError('nope')).code, 404);
+const badJson = Object.assign(new SyntaxError('Unexpected token'), { type: 'entity.parse.failed', status: 400, expose: true });
+assert.equal(respond(badJson).code, 400);
+assert.equal(respond(badJson).body.message, 'Malformed JSON body');
+assert.equal(respond(Object.assign(new Error('too large'), { type: 'entity.too.large', status: 413, expose: true })).code, 413);
 // the 500 path also logs the error via pino (expected output)
 assert.equal(respond(new Error('boom: expected test error')).code, 500);
 

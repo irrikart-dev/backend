@@ -25,6 +25,10 @@ Messages in the error tables are the exact strings the server sends. The app may
 | | Blocked accounts get `403 "This account has been blocked. Contact IrriKart support."` on every signed-in endpoint and on sync. |
 | | Coupon codes are case-insensitive. |
 | | `GET /catalog/banners` serves the home-screen hero banners. |
+| 2026-10-16 (later) | User object trimmed to `{ id, name, phone, email, role, permissions, createdAt }`. |
+| | Customer order detail no longer includes `vendorAmount` / `platformAmount`. |
+| | Hidden products and unpayable sellers can't be carted or checked out. Cart lines carry `purchasable`. |
+| | Malformed JSON bodies return `400 Malformed JSON body` (was 500). |
 
 ---
 
@@ -117,7 +121,7 @@ Request bodies, query strings and params are validated with zod. A failure retur
 - Timestamps are ISO-8601 UTC strings, e.g. `2026-10-16T09:42:11.512Z`.
 - Paginated responses (only `GET /catalog/products` today) use `{ "items": [...], "page": 1, "limit": 20, "total": 134 }`. Other lists are plain arrays.
 - Rate limit: **300 requests per 15 minutes per client IP**, across all endpoints. Responses carry `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset`. A 429 also carries `Retry-After`.
-- Malformed JSON bodies currently return **500**, not 400 (see Open questions). Always send `Content-Type: application/json` with a valid JSON body on POST/PATCH.
+- Malformed JSON bodies return `400 Malformed JSON body`. Always send `Content-Type: application/json` on POST/PATCH.
 
 ---
 
@@ -133,20 +137,19 @@ Request bodies, query strings and params are validated with zod. A failure retur
 
 ### User object
 
-`sync`, `GET /auth/me` and `PATCH /auth/me` all return the raw user row:
+`sync`, `GET /auth/me` and `PATCH /auth/me` all return the same user object:
 
 | Field | Type | Notes |
 |---|---|---|
 | `id` | string | Backend user id |
-| `firebaseUid` | string | Firebase uid |
 | `phone` | string \| null | E.164 from the Firebase token, e.g. `+919876543210`. Read-only |
 | `email` | string \| null | From the Firebase token. Read-only. Usually null for phone sign-in |
 | `name` | string \| null | Null until the user sets it with `PATCH /auth/me` |
 | `role` | `"CUSTOMER"` \| `"ADMIN"` \| `"SUB_ADMIN"` \| `"VENDOR"` | Customers are `CUSTOMER` |
 | `permissions` | string[] | Always `[]` for customers |
-| `status` | `"ACTIVE"` \| `"BLOCKED"` | A blocked user never gets a 200 here (403 instead) |
-| `razorpayCustomerId` | string \| null | Internal. Set at first online checkout |
-| `createdAt`, `updatedAt` | ISO string | |
+| `createdAt` | ISO string | |
+
+A blocked user never gets a 200 from these endpoints (403 instead), so there is no status field.
 
 Example:
 
@@ -155,16 +158,12 @@ Example:
   "success": true,
   "data": {
     "id": "cm2k9x7qz0001lb08h3f6d2ab",
-    "firebaseUid": "u7Hq3sKp1XbV9mN2aYc4ZtR8eWf1",
     "phone": "+919876543210",
     "email": null,
     "name": "Ramesh Patil",
     "role": "CUSTOMER",
     "permissions": [],
-    "status": "ACTIVE",
-    "razorpayCustomerId": null,
-    "createdAt": "2026-10-01T06:12:40.101Z",
-    "updatedAt": "2026-10-12T11:03:09.774Z"
+    "createdAt": "2026-10-01T06:12:40.101Z"
   }
 }
 ```
@@ -505,6 +504,7 @@ Every cart endpoint (except merge, which wraps it) returns:
         "quantity": 2,
         "price": 4999,
         "lineTotal": 9998,
+        "purchasable": true,
         "available": 22
       }
     ],
@@ -521,7 +521,8 @@ Every cart endpoint (except merge, which wraps it) returns:
 | `vendorId` | The single seller whose items are in the cart. `null` when empty |
 | `items[].id` | **Cart line id**. Use it for PATCH and DELETE |
 | `items[].price` | Price captured when the line was last added or updated. Checkout re-prices from live data, so the order total can differ if the price changed in between |
-| `items[].available` | Live available stock for that variant. Warn when `quantity > available` |
+| `items[].purchasable` | `false` once the product was hidden or its seller can't be paid. Show the line as unavailable and ask the user to remove it. Checkout refuses the cart until they do |
+| `items[].available` | Live available stock for that variant (`0` when not purchasable). Warn when `quantity > available` |
 | `itemCount` | Sum of quantities (for the badge) |
 | `subtotal`, `total` | Equal. The cart does not apply coupons. The discount shows only on the order |
 
@@ -563,6 +564,7 @@ Response 200: cart object.
 |---|---|---|
 | 400 | `Validation failed` | Bad body |
 | 404 | `Product variant not found` | Unknown variantId |
+| 404 | `This product is no longer available` | Product hidden or its seller can't be paid (also on `PATCH /cart/items/:itemId`) |
 | 409 | `Only 3 of this item available` | Existing + requested quantity > `available` |
 | 409 | `Your cart has items from X — clear it before adding items from Y.` (with `details`) | Different vendor |
 
@@ -781,6 +783,7 @@ Errors:
 | 404 | `Address not found` | Address missing, archived or not yours |
 | 400 | `Cart is empty` | |
 | 400 | `This seller is no longer available` | Cart's vendor suspended or missing |
+| 409 | `Drip Irrigation Kit – 1 Acre is no longer available — remove it from your cart` | A line's product was hidden or its seller can't be paid |
 | 409 | `Only 2 of DRIP-KIT-1AC available` | A line exceeds live available stock |
 | 409 | `Insufficient stock for one or more items` | Stock taken by someone else at the same moment (race) |
 | 404 | `Coupon not found` | Unknown or deactivated code |
@@ -850,8 +853,6 @@ Returns at most the **latest 50 orders**, newest first. It is a plain array with
     "createdAt": "2026-10-16T09:42:11.512Z",
     "subtotal": 9998,
     "discount": 1000,
-    "vendorAmount": 8098,
-    "platformAmount": 900,
     "acceptedAt": "2026-10-16T10:05:00.000Z",
     "cancelledAt": null,
     "cancelledBy": null,
@@ -897,7 +898,6 @@ Returns at most the **latest 50 orders**, newest first. It is a plain array with
 | summary fields | As in `GET /orders` |
 | `subtotal` | Sum of line totals (prices frozen at checkout) |
 | `discount` | `subtotal − amount`, never negative. Not stored separately |
-| `vendorAmount`, `platformAmount` | Seller/platform split. Internal; **don't display** (see Open questions) |
 | `acceptedAt` | When the seller accepted. Null before |
 | `cancelledAt`, `cancelledBy`, `cancelReason` | Set when cancelled |
 | `items[].id` | **Order item id**. Use it as `orderItemId` when posting a review |
@@ -1324,19 +1324,15 @@ Steps 1 to 7 as in B, then:
 2. **Validation error shape.** `details.fieldErrors` is keyed by `body` / `query` / `params`, not by field name, so the app can't highlight the failing field. Should `validate()` flatten `body`'s own errors (e.g. `{ name: [...], pincode: [...] }`)?
 3. **Payment amount unit.** The checkout and `/pay` responses return `amount` in **rupees**. Razorpay's SDK needs paise, so the app multiplies by 100. Is that intended, or should the API return `amountPaise` as well?
 4. **Integer rupees.** Order totals are rounded to whole rupees, but product, variant and cart prices are `Decimal(10,2)` and the admin forms accept decimals (`z.number().nonnegative()`). Should prices be restricted to integers, or should the app handle paise-level prices?
-5. **Commission split exposed.** The customer `GET /orders/:id` returns `vendorAmount` and `platformAmount`. Is exposing the seller/platform split to customers intended?
-6. **Raw user row.** `/auth/firebase/sync` and `/auth/me` return the full DB row (`firebaseUid`, `role`, `permissions`, `razorpayCustomerId`, `status`). Should there be a customer profile DTO?
-7. **Hidden products in cart.** Neither `POST /cart/items` nor checkout checks that the product is still `PUBLISHED` or that its vendor is sellable (checkout only checks vendor `status`). A product hidden after being added to a cart can still be ordered. Intended?
-8. **Repeat checkout.** Each ONLINE checkout creates a new order, a new stock hold and a new coupon use, while the previous unpaid order still holds stock for 30 minutes. A user who backs out and taps "Place order" again can hit `You have already used this coupon` or false stock shortages. Should checkout reuse or cancel the caller's pending order?
-9. **Expiry is lazy.** Unpaid orders are auto-cancelled only when someone checks out (or an admin opens orders), not on a timer. An order can show `PLACED` well past 30 minutes, and `/pay` doesn't check expiry. Should the app treat `createdAt + 30 min` as expired in the UI, or will the backend add a scheduled sweep?
-10. **Order status vs shipment.** Shiprocket webhooks update only the shipment. The order moves to `DELIVERED` only when an admin sets it, and nothing ever sets `RETURNED`. Should a shipment `DELIVERED` advance the order?
-11. **Review eligibility signal.** Order items carry no `reviewed` flag, so the app learns about a duplicate only from the 409. Add `reviewId`/`reviewed` to order items?
-12. **Wishlist / recently viewed with a slug.** These endpoints accept a slug for the visibility check but then store it as a product id, which fails with a misleading 409. Should they resolve the slug to an id, or reject slugs explicitly?
-13. **Malformed JSON** returns 500 `Internal server error` instead of 400, because `errorHandler` ignores body-parser's `status`.
-14. **Rate limit per IP.** 300 requests per 15 minutes per IP may be tight for users behind carrier NAT sharing one IP. The 429 body is plain text, not the JSON envelope.
-15. **Unpaginated lists.** Orders (capped at 50), reviews, RFQs and wishlist have no pagination. Is that acceptable for v1?
-16. **Missing order fields.** Order summaries and details have no seller/store name and no item count. Should they be added for the order list UI?
-17. **Coupon message format.** `Minimum cart value of 999 required` prints the raw decimal without ₹ (e.g. `999.5` is possible).
-18. **Category/brand `productCount`** includes hidden products, so it can disagree with list results.
-19. **Image URLs.** `scripts/check-catalog-api.js` asserts that image URLs are absolute, but no code converts legacy relative paths to absolute URLs. Confirm that every stored URL is an absolute Supabase URL.
-20. **RFQ `targetPrice` semantics.** Is it per unit or for the whole quantity? The schema doesn't say.
+5. **Repeat checkout.** Each ONLINE checkout creates a new order, a new stock hold and a new coupon use, while the previous unpaid order still holds stock for 30 minutes. A user who backs out and taps "Place order" again can hit `You have already used this coupon` or false stock shortages. Should checkout reuse or cancel the caller's pending order?
+6. **Expiry is lazy.** Unpaid orders are auto-cancelled only when someone checks out (or an admin opens orders), not on a timer. An order can show `PLACED` well past 30 minutes, and `/pay` doesn't check expiry. Should the app treat `createdAt + 30 min` as expired in the UI, or will the backend add a scheduled sweep?
+7. **Order status vs shipment.** Shiprocket webhooks update only the shipment. The order moves to `DELIVERED` only when an admin sets it, and nothing ever sets `RETURNED`. Should a shipment `DELIVERED` advance the order?
+8. **Review eligibility signal.** Order items carry no `reviewed` flag, so the app learns about a duplicate only from the 409. Add `reviewId`/`reviewed` to order items?
+9. **Wishlist / recently viewed with a slug.** These endpoints accept a slug for the visibility check but then store it as a product id, which fails with a misleading 409. Should they resolve the slug to an id, or reject slugs explicitly?
+10. **Rate limit per IP.** 300 requests per 15 minutes per IP may be tight for users behind carrier NAT sharing one IP. The 429 body is plain text, not the JSON envelope.
+11. **Unpaginated lists.** Orders (capped at 50), reviews, RFQs and wishlist have no pagination. Is that acceptable for v1?
+12. **Missing order fields.** Order summaries and details have no seller/store name and no item count. Should they be added for the order list UI?
+13. **Coupon message format.** `Minimum cart value of 999 required` prints the raw decimal without ₹ (e.g. `999.5` is possible).
+14. **Category/brand `productCount`** includes hidden products, so it can disagree with list results.
+15. **Image URLs.** `scripts/check-catalog-api.js` asserts that image URLs are absolute, but no code converts legacy relative paths to absolute URLs. Confirm that every stored URL is an absolute Supabase URL.
+16. **RFQ `targetPrice` semantics.** Is it per unit or for the whole quantity? The schema doesn't say.

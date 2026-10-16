@@ -1,12 +1,15 @@
 import { prisma } from '../../config/db.js';
 
+// what catalog.service isProductSellable needs: product status + vendor payability
+const sellableVendor = { select: { status: true, razorpayAccountId: true, routeStatus: true } };
+
 const cartInclude = {
   items: {
     orderBy: { id: 'asc' },
     include: {
       variant: {
         include: {
-          product: { include: { images: { take: 1, orderBy: { position: 'asc' } } } },
+          product: { include: { images: { take: 1, orderBy: { position: 'asc' } }, vendor: sellableVendor } },
         },
       },
     },
@@ -27,11 +30,12 @@ export default {
   },
 
   // cart-local variant lookup by id — catalog.repository only exposes getVariantBySku.
-  // Includes the owning product's vendorId so cart.service.js can enforce single-vendor.
+  // Includes the owning product's vendorId (single-vendor rule) and what the
+  // sellability check needs (status, vendor payability).
   findVariantById(variantId) {
     return prisma.productVariant.findUnique({
       where: { id: variantId },
-      include: { product: { select: { vendorId: true } } },
+      include: { product: { select: { vendorId: true, status: true, vendor: sellableVendor } } },
     });
   },
 

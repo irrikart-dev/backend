@@ -8,6 +8,7 @@ import * as inventory from '../inventory/inventory.service.js';
 import * as discounts from '../discounts/discounts.service.js';
 import * as payments from '../payments/payments.service.js';
 import * as addresses from '../addresses/addresses.service.js';
+import { isProductSellable } from '../catalog/catalog.service.js';
 import * as shipping from '../shipping/shipping.service.js';
 import * as vendorsService from '../vendors/vendors.service.js';
 import logger from '../../common/utils/logger.js';
@@ -45,6 +46,9 @@ export async function checkout(user, { couponCode, addressId, paymentMethod = 'O
 
   for (const item of cart.items) {
     const { variant } = item;
+    if (!isProductSellable(variant.product, variant.product.vendor)) {
+      throw new ConflictError(`${variant.product.title} is no longer available — remove it from your cart`);
+    }
     if (item.quantity > available(variant)) {
       throw new ConflictError(`Only ${available(variant)} of ${variant.sku} available`);
     }
@@ -398,6 +402,11 @@ function toOrderSummaryDto(order) {
   };
 }
 
+// commission split — vendor and admin views only, never the customer's
+function withSplit(order, dto) {
+  return { ...dto, vendorAmount: Number(order.vendorAmount), platformAmount: Number(order.platformAmount) };
+}
+
 function toOrderDto(order) {
   const items = order.items.map(toOrderItemDto);
   const subtotal = items.reduce((sum, i) => sum + i.totalPrice, 0);
@@ -406,8 +415,6 @@ function toOrderDto(order) {
     subtotal,
     // not stored separately — whatever the coupon took off the line totals
     discount: Math.max(subtotal - Number(order.totalAmount), 0),
-    vendorAmount: Number(order.vendorAmount),
-    platformAmount: Number(order.platformAmount),
     acceptedAt: order.acceptedAt,
     cancelledAt: order.cancelledAt,
     cancelledBy: order.cancelledBy,
@@ -437,7 +444,7 @@ export async function listOrdersForVendor(vendorId) {
 export async function getOrderForVendor(vendorId, orderId) {
   const order = await repository.findByIdForVendor(orderId, vendorId);
   if (!order) throw new NotFoundError('Order not found');
-  return toOrderDto(order);
+  return withSplit(order, toOrderDto(order));
 }
 
 function adminOrderWhere({ status, vendorId, search }) {
@@ -486,7 +493,7 @@ export async function getOrderForAdmin(orderId) {
   if (!order) throw new NotFoundError('Order not found');
   const shipment = await shipping.getForOrder(orderId);
   return {
-    ...toOrderDto(order),
+    ...withSplit(order, toOrderDto(order)),
     customer: { id: order.user.id, name: customerName(order.user), phone: order.user.phone, email: order.user.email },
     vendor: order.vendor,
     payments: order.payments.map((p) => ({
