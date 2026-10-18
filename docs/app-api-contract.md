@@ -29,6 +29,12 @@ Messages in the error tables are the exact strings the server sends. The app may
 | | Customer order detail no longer includes `vendorAmount` / `platformAmount`. |
 | | Hidden products and unpayable sellers can't be carted or checked out. Cart lines carry `purchasable`. |
 | | Malformed JSON bodies return `400 Malformed JSON body` (was 500). |
+| 2026-10-19 | **Returns:** `POST /returns/photos`, `POST /returns`, `GET /returns`. Order detail adds `deliveredAt`, `returnableUntil`, `returns[]` and `refunds[]`. |
+| | **Notifications:** `POST`/`DELETE /notifications/devices` for FCM tokens, `GET /notifications`, `POST /notifications/:id/read`, `POST /notifications/read-all`. Order, return and refund updates arrive as pushes. |
+| | **Checkout summary:** `POST /orders/quote` prices the cart (coupon, delivery fee, GST) before ordering. Orders can now carry a **delivery fee**, which is included in `amount`. |
+| | Order detail adds `shipping` and `tax`. `discount` is now `subtotal + shipping − amount`. Items add `gstRate` and `hsnCode`. Products add `gstRate` and `hsnCode`. |
+| | **Coupons:** `GET /discounts/offers`. New checkout error `400 This coupon is only for your first order`. A coupon issued to another customer returns `404 Coupon not found`. |
+| | **Shipping:** `GET /shipping/serviceability` (public pincode check with ETA). Courier updates now move the order to `SHIPPED` / `DELIVERED`. |
 
 ---
 
@@ -695,6 +701,7 @@ All order endpoints need auth.
 
 | Method | Path | Purpose |
 |---|---|---|
+| POST | `/orders/quote` | Price the cart for the checkout screen, without ordering |
 | POST | `/orders/checkout` | Place an order from the cart (ONLINE or COD) |
 | GET | `/orders` | Order history (latest 50, newest first) |
 | GET | `/orders/:id` | Order detail |
@@ -702,6 +709,37 @@ All order endpoints need auth.
 | POST | `/orders/:id/cancel` | Cancel |
 | POST | `/orders/:id/reorder` | Put a past order's items back in the cart |
 | GET | `/orders/:id/invoice` | Invoice PDF |
+
+### POST /orders/quote
+
+Prices the caller's cart with the same maths checkout uses, and places nothing. Call it when the checkout screen opens and again whenever the coupon changes.
+
+Body: `{ "couponCode": "monsoon10" }`. `couponCode` is optional.
+
+```json
+{
+  "success": true,
+  "data": {
+    "subtotal": 9998,
+    "discount": 1000,
+    "shipping": 90,
+    "total": 9088,
+    "freeShippingAbove": 10000,
+    "couponCode": "MONSOON10",
+    "tax": { "total": 1372.58, "lines": [{ "rate": 18, "taxable": 7625.42, "tax": 1372.58 }] },
+    "currency": "INR"
+  }
+}
+```
+
+| Field | Notes |
+|---|---|
+| `total` | `subtotal − discount + shipping`. This is what checkout will charge |
+| `shipping` | Delivery fee. 0 when delivery is free |
+| `freeShippingAbove` | Order value (after the coupon) from which delivery is free. `null` = never free, or delivery is always free. Use it for "Add ₹X more for free delivery" |
+| `tax` | GST already **included** in the prices, split out by rate. Show it as "Incl. GST ₹…". Products without a GST rate are left out. Values have up to 2 decimals |
+
+Errors: 400 `Cart is empty`, plus the same coupon and stock errors as checkout (see Coupons). On a coupon error, show it next to the coupon field and quote again without the code.
 
 ### POST /orders/checkout
 
@@ -853,10 +891,14 @@ Returns at most the **latest 50 orders**, newest first. It is a plain array with
     "createdAt": "2026-10-16T09:42:11.512Z",
     "subtotal": 9998,
     "discount": 1000,
+    "shipping": 0,
+    "tax": { "total": 1372.58, "lines": [{ "rate": 18, "taxable": 7625.42, "tax": 1372.58 }] },
     "acceptedAt": "2026-10-16T10:05:00.000Z",
     "cancelledAt": null,
     "cancelledBy": null,
     "cancelReason": null,
+    "deliveredAt": null,
+    "returnableUntil": null,
     "items": [
       {
         "id": "cm2oit0001line0000000001",
@@ -869,7 +911,9 @@ Returns at most the **latest 50 orders**, newest first. It is a plain array with
         "unit": "piece",
         "quantity": 2,
         "unitPrice": 4999,
-        "totalPrice": 9998
+        "totalPrice": 9998,
+        "gstRate": 18,
+        "hsnCode": "8424"
       }
     ],
     "address": {
@@ -888,7 +932,9 @@ Returns at most the **latest 50 orders**, newest first. It is a plain array with
         { "status": "PICKED UP", "description": "Shipment picked up", "occurredAt": "2026-10-17T07:10:00.000Z" },
         { "status": "IN TRANSIT", "description": "Reached Pune hub", "occurredAt": "2026-10-18T02:31:00.000Z" }
       ]
-    }
+    },
+    "refunds": [],
+    "returns": []
   }
 }
 ```
@@ -897,7 +943,14 @@ Returns at most the **latest 50 orders**, newest first. It is a plain array with
 |---|---|
 | summary fields | As in `GET /orders` |
 | `subtotal` | Sum of line totals (prices frozen at checkout) |
-| `discount` | `subtotal − amount`, never negative. Not stored separately |
+| `discount` | `subtotal + shipping − amount`, never negative. Not stored separately |
+| `shipping` | Delivery fee charged on this order (included in `amount`) |
+| `tax` | GST included in the prices, by rate. Same shape as in `POST /orders/quote` |
+| `deliveredAt` | When the order reached `DELIVERED`. Null before |
+| `returnableUntil` | Last moment a return can be requested. Non-null only while `DELIVERED`. Show **Return items** while `now < returnableUntil` and no entry in `returns` is `REQUESTED` or `APPROVED` |
+| `refunds[]` | `{ amount, status, reason, createdAt }` for money sent back (cancellation, return, manual). `status`: `pending`, `processed` or `failed` |
+| `returns[]` | Return requests on this order, newest first. Shape as in **Returns** |
+| `items[].gstRate`, `hsnCode` | GST % and HSN code at checkout. Either may be null |
 | `acceptedAt` | When the seller accepted. Null before |
 | `cancelledAt`, `cancelledBy`, `cancelReason` | Set when cancelled |
 | `items[].id` | **Order item id**. Use it as `orderItemId` when posting a review |
@@ -1073,7 +1126,19 @@ Response **204**. Errors: 404 `Saved method not found`.
 
 ## 7. Coupons
 
-- Coupons are **entered at checkout only**, as `couponCode` on `POST /orders/checkout`. **There is no endpoint to validate a coupon or preview the discount beforehand.** The discount first appears on the created order (`discount` on `GET /orders/:id`). For ONLINE, the payable `amount` in the checkout response already includes it.
+- Apply a coupon with `couponCode` on `POST /orders/checkout`. Preview it first with `POST /orders/quote` (same body field), which returns the discount or the same error checkout would.
+- `GET /discounts/offers` (auth) lists coupons the user can apply right now, for an offers screen or a "View offers" sheet next to the coupon field. It contains the coupons staff chose to show, plus any coupon issued to this user. It leaves out expired, used-up and first-order coupons the user no longer qualifies for.
+
+```json
+{
+  "success": true,
+  "data": [
+    { "code": "WELCOME50", "description": "₹50 off your first order", "type": "FLAT", "value": 50, "minCartValue": null, "expiresAt": null, "firstOrderOnly": true, "personal": false }
+  ]
+}
+```
+
+- `personal: true` means the coupon was issued to this user alone.
 - Codes are **case-insensitive** and trimmed (`monsoon10` = `MONSOON10`).
 - `FLAT` coupons take off a fixed rupee amount. `PERCENT` coupons take off a percentage of the subtotal. Either way, the discount is rounded to whole rupees and capped at the subtotal. The order total must still be ≥ ₹1.
 - One coupon per order.
@@ -1083,11 +1148,12 @@ Errors that can come back from checkout (checked in this order):
 
 | Status | Message |
 |---|---|
-| 404 | `Coupon not found` (unknown or deactivated) |
+| 404 | `Coupon not found` (unknown, deactivated, or issued to another customer) |
 | 400 | `Coupon has expired` |
 | 400 | `Minimum cart value of <amount> required` |
 | 409 | `Coupon usage limit reached` |
 | 409 | `You have already used this coupon` |
+| 400 | `This coupon is only for your first order` |
 | 400 | `Order total must be at least ₹1 — adjust your coupon or cart` |
 
 UI suggestion: show a coupon field on the checkout screen. On a coupon error, show the message next to the field and let the user remove the code and place the order again.
@@ -1209,32 +1275,157 @@ Staff can move a request to any status. Staff notes (`adminNote`) are **never** 
 
 ## 10. Shipping
 
-The customer-visible part of shipping is the `shipment` field on `GET /orders/:id`. There is no separate customer shipping endpoint.
+Customers see shipping in three places: the `shipment` field on `GET /orders/:id`, the delivery fee (`shipping` on the quote and the order), and the pincode check below.
 
 - After an order is confirmed (COD at checkout, online once payment is captured), the backend books a Shiprocket shipment **in the background**. If booking fails, `shipment` stays `null`, so the UI must handle `null` on any status.
 - Shape: `{ status, awbNumber, trackingEvents[] }`.
   - `status`: `CREATED`, `IN_TRANSIT`, `DELIVERED`, `RTO` (returned to origin) or `FAILED` (cancelled or undelivered).
   - `awbNumber`: string or null. Null if the AWB isn't assigned yet.
   - `trackingEvents[]`: `{ status, description, occurredAt }`, oldest first. `status` is Shiprocket's raw uppercase string (e.g. `PICKED UP`, `IN TRANSIT`, `OUT FOR DELIVERY`, `DELIVERED`). `description` may be null.
-- No courier name, tracking URL or ETA is exposed.
-- The shipment `status` and the order `status` are independent. A shipment showing `DELIVERED` doesn't move the order to `DELIVERED` (admin does that).
-- No pincode serviceability check or shipping fee exists. Totals contain no delivery charge.
+- No courier name or tracking URL is exposed.
+- Courier updates move the order forward. `IN_TRANSIT` moves a confirmed or packed order to `SHIPPED`, and `DELIVERED` moves it to `DELIVERED`. The customer gets a push for each.
+- **Delivery fee.** Staff set it by cart weight, with an optional free-delivery threshold. When no rules are set, delivery is free (`shipping: 0`). Read the fee from `POST /orders/quote`. Don't compute it in the app.
+
+### GET /shipping/serviceability
+
+Public (no auth). Use it for the pincode check on the PDP and cart.
+
+Query: `pincode` (6 digits, required), `weightKg` (the cart's total weight, default 0.5), `cod` (`true`/`false`, default `false`).
+
+```json
+{ "success": true, "data": { "pincode": "413102", "serviceable": true, "estimatedDays": 4, "estimatedDelivery": "Oct 23, 2026", "codAvailable": true } }
+```
+
+- `serviceable: false` means no courier delivers there. Show "We don't deliver to this pincode yet".
+- `estimatedDelivery` is the courier's own date string and may be null. Prefer "Delivery in about N days" from `estimatedDays`.
+- Answers are cached for a few hours.
+
+| Status | Message | When |
+|---|---|---|
+| 400 | `Validation failed` | Not a 6-digit pincode |
+| 502 | `Could not check delivery right now — please try again` | Courier lookup failed |
+| 503 | `Delivery checks are not set up yet` | Server not configured. Hide the pincode check |
 
 ---
 
-## 11. Not available yet
+## 11. Returns
+
+A customer can return or replace items from a `DELIVERED` order until `returnableUntil` (7 days after delivery by default). Each order can have one open request at a time.
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| POST | `/returns/photos` | yes | Upload one photo (multipart field `file`, image, max 5 MB) → `{ url }` |
+| POST | `/returns` | yes | Request a return or replacement |
+| GET | `/returns` | yes | The caller's requests (latest 50, newest first) |
+
+### POST /returns
+
+| Field | Type | Constraints |
+|---|---|---|
+| `orderId` | string | Required. A `DELIVERED` order of the caller |
+| `type` | `"RETURN"` \| `"REPLACE"` | Optional, default `RETURN` |
+| `reason` | string | Required, 3 to 200 chars |
+| `details` | string | Optional, up to 2000 chars |
+| `photoUrls` | string[] | Optional, up to 5. Only URLs returned by `POST /returns/photos` |
+| `items` | `{ orderItemId, quantity }[]` | Optional. Omit it to return everything still returnable |
+
+Response 201, the return request:
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "cm2ret0001user0000000001",
+    "type": "RETURN",
+    "status": "REQUESTED",
+    "reason": "Dripper heads cracked",
+    "details": null,
+    "photoUrls": ["https://xyz.supabase.co/storage/v1/object/public/irrikart-uploads/returns/9f1c.jpeg"],
+    "adminNote": null,
+    "refundAmount": null,
+    "refundStatus": null,
+    "restocked": false,
+    "createdAt": "2026-10-20T08:00:00.000Z",
+    "resolvedAt": null,
+    "items": [{ "orderItemId": "cm2oit0001line0000000001", "quantity": 1, "name": "Drip Irrigation Kit – 1 Acre", "sku": "DRIP-KIT-1AC", "image": "https://…" }]
+  }
+}
+```
+
+Statuses:
+
+| Status | Meaning |
+|---|---|
+| `REQUESTED` | Waiting for staff |
+| `APPROVED` | Accepted. Staff arrange the pickup |
+| `COMPLETED` | Goods received. For a `RETURN`, `refundAmount` holds the refund: the items' share of what was paid, coupon included, delivery fee excluded. `refundStatus` is the gateway outcome, or `manual` for COD (paid back outside the app) |
+| `REJECTED` | Declined. `adminNote` says why |
+
+`adminNote` is a message from staff to the customer. Show it when it isn't null. Each status change also arrives as a push (see Notifications). Once every unit on an order has been returned, the order becomes `RETURNED`.
+
+| Status | Message | When |
+|---|---|---|
+| 400 | `That item is not on this order` | Bad `orderItemId` |
+| 400 | `Only N of that item can still be returned` | More units than bought, or than are still unreturned |
+| 400 | `List each item once` | Duplicate `orderItemId` |
+| 400 | `Validation failed` | Includes a photo URL not from `POST /returns/photos` |
+| 404 | `Order not found` | Missing or not yours |
+| 409 | `Only a delivered order can be returned` | Not `DELIVERED` |
+| 409 | `Returns are accepted within 7 days of delivery` | Window closed |
+| 409 | `A return for this order is already in progress` | Another request is `REQUESTED` or `APPROVED` |
+| 409 | `Everything on this order has already been returned` | Nothing left to return |
+
+---
+
+## 12. Notifications
+
+Order, return and refund updates, plus staff announcements, are stored in a notification centre and sent as FCM pushes to every device the user is signed in on.
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| POST | `/notifications/devices` | yes | Register this device's FCM token. Body `{ fcmToken, platform: "android" \| "ios" \| "web" }` → 204 |
+| DELETE | `/notifications/devices` | yes | Stop pushing to this device. Body `{ fcmToken }` → 204 |
+| GET | `/notifications?page=1&limit=25` | yes | Newest first, with the unread count |
+| POST | `/notifications/:id/read` | yes | Mark one read → 204 (404 if not yours) |
+| POST | `/notifications/read-all` | yes | Mark all read → 204 |
+
+- Register the token after sign-in and again on `onTokenRefresh`. A token belongs to whoever signed in on that device last. Remove it on sign-out. Logout-all and account deletion drop every device server-side.
+
+`GET /notifications`:
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      { "id": "cm2ntf0001user0000000001", "type": "ORDER_SHIPPED", "title": "Your order is on its way", "body": "ORD-20261016-A1B2C3 has shipped — tracking number 141123456789012.", "data": { "orderId": "cm2ord0001user0000000001", "orderNumber": "ORD-20261016-A1B2C3" }, "read": false, "createdAt": "2026-10-17T07:10:00.000Z" }
+    ],
+    "unread": 3,
+    "page": 1,
+    "limit": 25,
+    "total": 12
+  }
+}
+```
+
+`type` values: `ORDER_CONFIRMED`, `ORDER_SHIPPED`, `ORDER_DELIVERED`, `ORDER_CANCELLED`, `ORDER_RETURNED` (undelivered parcel came back), `RETURN_APPROVED`, `RETURN_REJECTED`, `RETURN_COMPLETED`, `REFUND_PROCESSED`, `CAMPAIGN`.
+
+The FCM message carries the same title and body as a `notification`. Its `data` has `type` plus the `data` fields above, all as strings. On tap:
+- `orderId` present: open that order.
+- `CAMPAIGN` with `link`: open the link.
+- Otherwise: open the notification centre.
+
+---
+
+## 13. Not available yet
 
 Don't build UI that depends on these. Each was checked in the code:
 
 | Feature | State in backend |
 |---|---|
-| Push notifications / FCM token registration | No endpoint. `/notifications` mounts an empty router (every path returns 404 `Route ... not found`). A `DeviceToken` table exists, but nothing writes it |
-| In-app notification centre | Same. No list or read endpoints |
-| Returns / return requests | No endpoint. `RETURNED` exists as an order status, but nothing sets it |
 | Quote prices on RFQs | No quoted-price field. Staff reply outside the app |
-| Coupon pre-validation / listing available coupons | `/discounts` mounts an empty router. Coupons only via `couponCode` at checkout |
-| Shipping fee, pincode serviceability, delivery ETA | Not implemented |
 | Order tracking URL / courier name | Not exposed (only AWB + events) |
+| Customer-booked return pickup | Staff arrange pickups outside the app |
 | Category tree | `parentId` is not exposed. Categories are a flat list |
 | Vendor storefront endpoint | None. Use `GET /catalog/products?vendor=<id>` plus `product.vendor` |
 | Pagination on orders, reviews, RFQs, wishlist | Not implemented. Orders are capped at 50 |
@@ -1242,7 +1433,7 @@ Don't build UI that depends on these. Each was checked in the code:
 
 ---
 
-## 12. Recommended app flows
+## 14. Recommended app flows
 
 ### A. Sign-in
 
@@ -1264,7 +1455,7 @@ Don't build UI that depends on these. Each was checked in the code:
    - 409 without details: stock message.
 5. Cart screen: `GET /cart`. Change quantity with `PATCH /cart/items/<itemId>`, remove with `DELETE /cart/items/<itemId>`.
 6. Address step: `GET /addresses`. Preselect `isDefault`. If the list is empty, show the add form (`POST /addresses`).
-7. Checkout screen: an optional coupon field, then `ONLINE` / `COD`. Hide or disable COD when `cart.total > 5000` (server default; the server stays authoritative).
+7. Checkout screen: `POST /orders/quote` for the summary (subtotal, discount, delivery, total, "Incl. GST"). Add an optional coupon field ("View offers" → `GET /discounts/offers`) and re-quote on every change. Then offer `ONLINE` / `COD`. Hide or disable COD when the quote's `total > 5000` (server default; the server stays authoritative).
 8. `POST /orders/checkout { addressId, couponCode?, paymentMethod: "ONLINE" }` → 201. Keep `orderId`.
 9. Open Razorpay as described in Payments, then continue with flow D.
 
@@ -1316,9 +1507,25 @@ Steps 1 to 7 as in B, then:
 4. "My quote requests": `GET /rfq`. Show the status chip (NEW / CONTACTED / CLOSED), quantity, product title and date.
 5. On 404 `Product not found`, the product went offline. Let the user send it as requirements-only.
 
+### H. Return items
+
+1. On order detail, show **Return items** while `status == "DELIVERED"`, `now < returnableUntil`, and no entry in `returns` is `REQUESTED` or `APPROVED`.
+2. Let the user pick lines and quantities, a type (return or replace), a reason (offer presets like "Damaged", "Wrong item" or "Not as described"), optional details, and up to 5 photos.
+3. Upload each photo with `POST /returns/photos` and collect the `url`s.
+4. `POST /returns { orderId, type, reason, details?, photoUrls, items }` → 201. Show "Return requested".
+5. Order detail shows `returns[0].status` and `adminNote`. After `COMPLETED`, show `refundAmount` (`refundStatus == "manual"`: "We'll pay you back directly").
+
+### I. Push notifications
+
+1. After sign-in, request notification permission. Then get the FCM token and send `POST /notifications/devices { fcmToken, platform }`.
+2. On `onTokenRefresh`, post the new token.
+3. On sign-out, send `DELETE /notifications/devices { fcmToken }` before `signOut()`.
+4. Bell icon: the `unread` count from `GET /notifications?limit=1`. On opening the centre, list the items, then call `POST /notifications/read-all`.
+5. On tapping a push or a row, route by `data` as described in **Notifications**.
+
 ---
 
-## 13. Open questions
+## 15. Open questions
 
 1. **Hosts.** The production and staging base URLs are not in the backend repo. The Swagger `servers` entry is localhost only. Who supplies them?
 2. **Validation error shape.** `details.fieldErrors` is keyed by `body` / `query` / `params`, not by field name, so the app can't highlight the failing field. Should `validate()` flatten `body`'s own errors (e.g. `{ name: [...], pincode: [...] }`)?
@@ -1326,7 +1533,7 @@ Steps 1 to 7 as in B, then:
 4. **Integer rupees.** Order totals are rounded to whole rupees, but product, variant and cart prices are `Decimal(10,2)` and the admin forms accept decimals (`z.number().nonnegative()`). Should prices be restricted to integers, or should the app handle paise-level prices?
 5. **Repeat checkout.** Each ONLINE checkout creates a new order, a new stock hold and a new coupon use, while the previous unpaid order still holds stock for 30 minutes. A user who backs out and taps "Place order" again can hit `You have already used this coupon` or false stock shortages. Should checkout reuse or cancel the caller's pending order?
 6. **Expiry is lazy.** Unpaid orders are auto-cancelled only when someone checks out (or an admin opens orders), not on a timer. An order can show `PLACED` well past 30 minutes, and `/pay` doesn't check expiry. Should the app treat `createdAt + 30 min` as expired in the UI, or will the backend add a scheduled sweep?
-7. **Order status vs shipment.** Shiprocket webhooks update only the shipment. The order moves to `DELIVERED` only when an admin sets it, and nothing ever sets `RETURNED`. Should a shipment `DELIVERED` advance the order?
+7. ~~Order status vs shipment.~~ Resolved 2026-10-19: courier updates now move the order to `SHIPPED` / `DELIVERED`, and returns or an RTO set `RETURNED`.
 8. **Review eligibility signal.** Order items carry no `reviewed` flag, so the app learns about a duplicate only from the 409. Add `reviewId`/`reviewed` to order items?
 9. **Wishlist / recently viewed with a slug.** These endpoints accept a slug for the visibility check but then store it as a product id, which fails with a misleading 409. Should they resolve the slug to an id, or reject slugs explicitly?
 10. **Rate limit per IP.** 300 requests per 15 minutes per IP may be tight for users behind carrier NAT sharing one IP. The 429 body is plain text, not the JSON envelope.
