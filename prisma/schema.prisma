@@ -125,6 +125,8 @@ model Vendor {
   status            VendorStatus @default(ACTIVE)
   commissionPercent Decimal      @default(10) @db.Decimal(5, 2)
   legalBusinessName String?
+  // printed on the vendor's tax invoices
+  gstin             String?
   contactEmail      String?
   contactPhone      String?
   razorpayAccountId String?      @unique
@@ -215,6 +217,10 @@ model Product {
   status      ProductStatus @default(PUBLISHED)
   // YouTube URL for the PDP media viewer's demo-video slot — optional, admin-set
   videoUrl    String?
+  // prices are GST-inclusive; the rate (e.g. 5, 12, 18) splits the tax out on the
+  // order summary and invoice. Null = not set yet, no tax line shown.
+  gstRate     Decimal?      @db.Decimal(5, 2)
+  hsnCode     String?
   source      String        @default("admin") // seed | admin
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
@@ -400,6 +406,8 @@ model Order {
   status         OrderStatus   @default(PLACED)
   paymentMethod  PaymentMethod @default(ONLINE)
   totalAmount    Decimal       @db.Decimal(10, 2)
+  // delivery fee charged at checkout (part of totalAmount) — the platform's, not the vendor's
+  shippingAmount Decimal       @default(0) @db.Decimal(10, 2)
   vendorAmount   Decimal       @db.Decimal(10, 2)
   platformAmount Decimal       @db.Decimal(10, 2)
   // vendor has seen and taken the order — gates pack/ship, see orders.service.js
@@ -435,6 +443,9 @@ model OrderItem {
   quantity   Int
   unitPrice  Decimal        @db.Decimal(10, 2)
   totalPrice Decimal        @db.Decimal(10, 2)
+  // the product's GST rate and HSN at checkout, so a later catalogue edit never changes an issued invoice
+  gstRate    Decimal?       @db.Decimal(5, 2)
+  hsnCode    String?
 
   review      Review?
   returnItems ReturnItem[]
@@ -739,4 +750,19 @@ model NotificationCampaign {
   createdAt  DateTime @default(now())
 
   @@index([createdAt])
+}
+
+// ============================================================
+// settings — src/modules/settings
+// ============================================================
+
+// single row (id "default"), edited from the admin Settings page
+model StoreSettings {
+  id                String   @id @default("default")
+  // order value (after coupon) at or above which delivery is free; null = never free
+  freeShippingAbove Decimal? @db.Decimal(10, 2)
+  // delivery fee by parcel weight, [{ upToKg, fee }] ascending — the first slab the
+  // parcel fits in applies, heavier than every slab uses the last. Empty = free delivery.
+  shippingSlabs     Json     @default("[]")
+  updatedAt         DateTime @updatedAt
 }

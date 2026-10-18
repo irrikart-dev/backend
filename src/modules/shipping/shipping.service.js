@@ -77,7 +77,9 @@ async function bookShipment(orderId) {
       selling_price: Number(item.unitPrice),
     })),
     payment_method: order.paymentMethod === 'COD' ? 'COD' : 'Prepaid',
-    sub_total: Number(order.totalAmount),
+    // items after discount; the delivery fee charged to the customer goes separately
+    sub_total: Number(order.totalAmount) - Number(order.shippingAmount ?? 0),
+    shipping_charges: Number(order.shippingAmount ?? 0),
     length: dims.lengthCm,
     breadth: dims.widthCm,
     height: dims.heightCm,
@@ -190,3 +192,71 @@ export async function getForOrder(orderId) {
       .map((e) => ({ status: e.status, description: e.description, occurredAt: e.occurredAt })),
   };
 }
+
+// ---- pincode serviceability / delivery estimate ----
+
+// ponytail: per-instance memory cache — each serverless instance warms its own. Move to
+// a shared store if Shiprocket's rate limit ever bites.
+const serviceabilityCache = new Map();
+const SERVICEABILITY_TTL_MS = 6 * 3600 * 1000;
+
+async function fetchCouriers({ pincode, weightKg, cod }) {
+  if (!env.SHIPROCKET_PICKUP_PINCODE) throw new AppError('Delivery checks are not set up yet', 503);
+  try {
+    const { data } = await provider.checkServiceability({
+      pickup_postcode: env.SHIPROCKET_PICKUP_PINCODE,
+      delivery_postcode: pincode,
+      weight: weightKg,
+      cod: cod ? 1 : 0,
+    });
+    return {
+      couriers: data?.data?.available_courier_companies ?? [],
+      recommendedId: data?.data?.recommended_courier_company_id ?? null,
+    };
+  } catch (err) {
+    const status = err.response?.status;
+    // Shiprocket answers an unserviceable pincode with a 4xx rather than an empty list
+    if (status >= 400 && status < 500 && status !== 401 && status !== 403) return { couriers: [], recommendedId: null };
+    logger.error({ err, pincode }, 'shiprocket serviceability check failed');
+    throw new AppError('Could not check delivery right now — please try again', 502);
+  }
+}
+
+/** Can we deliver to this pincode, and roughly when? For the PDP/cart pincode check. */
+export async function checkServiceability({ pincode, weightKg, cod }) {
+  const key = `${pincode}:${Math.ceil(weightKg)}:${cod}`;
+  const hit = serviceabilityCache.get(key);
+  if (hit && hit.expires > Date.now()) return hit.value;
+
+  const { couriers, recommendedId } = await fetchCouriers({ pincode, weightKg, cod });
+  const best =
+    couriers.find((c) => c.courier_company_id === recommendedId) ??
+    [...couriers].sort((a, b) => Number(a.estimated_delivery_days) - Number(b.estimated_delivery_days))[0];
+  const value = {
+    pincode,
+    serviceable: Boolean(best),
+    estimatedDays: best ? Number(best.estimated_delivery_days) || null : null,
+    // courier's own date string, e.g. "Oct 24, 2026"
+    estimatedDelivery: best?.etd || null,
+    codAvailable: couriers.some((c) => Number(c.cod) === 1),
+  };
+  serviceabilityCache.set(key, { value, expires: Date.now() + SERVICEABILITY_TTL_MS });
+  return value;
+}
+
+/** Every courier Shiprocket offers for a parcel, cheapest first — what the platform would pay. */
+export async function courierRatesForAdmin({ pincode, weightKg, cod }) {
+  const { couriers, recommendedId } = await fetchCouriers({ pincode, weightKg, cod });
+  return couriers
+    .map((c) => ({
+      courierId: c.courier_company_id,
+      name: c.courier_name,
+      rate: Number(c.rate),
+      estimatedDays: Number(c.estimated_delivery_days) || null,
+      estimatedDelivery: c.etd || null,
+      cod: Number(c.cod) === 1,
+      recommended: c.courier_company_id === recommendedId,
+    }))
+    .sort((a, b) => a.rate - b.rate);
+}
+

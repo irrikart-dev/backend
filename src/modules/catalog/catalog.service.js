@@ -92,6 +92,9 @@ function toProductDto(p) {
     // which the public `images` array (just URLs) deliberately doesn't expose.
     galleryImages: (p.images ?? []).map((i) => ({ id: i.id, url: i.url, position: i.position })),
     videoUrl: p.videoUrl ?? null,
+    // GST already included in price, e.g. 18 — null until set
+    gstRate: p.gstRate == null ? null : Number(p.gstRate),
+    hsnCode: p.hsnCode ?? null,
     variants: (p.variants ?? []).map(toVariantDto),
     tagline: p.tagline ?? '',
     description: p.description ?? '',
@@ -383,6 +386,8 @@ export async function createProduct(input) {
       inStock: input.inStock ?? true,
       status: input.status ?? 'PUBLISHED',
       videoUrl: input.videoUrl ?? null,
+      gstRate: input.gstRate ?? null,
+      hsnCode: input.hsnCode ?? null,
       source: 'admin',
     },
     variant: {
@@ -427,6 +432,8 @@ export async function updateProduct(id, input, { vendorId } = {}) {
       ...(input.inStock !== undefined ? { inStock: input.inStock } : {}),
       ...(input.status !== undefined ? { status: input.status } : {}),
       ...(input.videoUrl !== undefined ? { videoUrl: input.videoUrl } : {}),
+      ...(input.gstRate !== undefined ? { gstRate: input.gstRate } : {}),
+      ...(input.hsnCode !== undefined ? { hsnCode: input.hsnCode } : {}),
     },
     variant:
       input.unit !== undefined ||

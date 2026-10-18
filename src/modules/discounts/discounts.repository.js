@@ -81,7 +81,7 @@ export default {
       select: {
         couponId: true,
         userId: true,
-        order: { select: { totalAmount: true, items: { select: { quantity: true, unitPrice: true } } } },
+        order: { select: { totalAmount: true, shippingAmount: true, items: { select: { quantity: true, unitPrice: true } } } },
       },
     });
   },

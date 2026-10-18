@@ -36,6 +36,7 @@ export default {
       status = 'PLACED',
       paymentMethod = 'ONLINE',
       totalAmount,
+      shippingAmount = 0,
       vendorAmount,
       platformAmount,
       items,
@@ -52,14 +53,17 @@ export default {
         status,
         paymentMethod,
         totalAmount,
+        shippingAmount,
         vendorAmount,
         platformAmount,
         items: {
-          create: items.map(({ variantId, quantity, unitPrice, totalPrice }) => ({
+          create: items.map(({ variantId, quantity, unitPrice, totalPrice, gstRate = null, hsnCode = null }) => ({
             variantId,
             quantity,
             unitPrice,
             totalPrice,
+            gstRate,
+            hsnCode,
           })),
         },
       },

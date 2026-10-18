@@ -32,6 +32,7 @@ const returns = await import('../src/modules/returns/returns.service.js');
 const shipping = await import('../src/modules/shipping/shipping.service.js');
 const notifications = await import('../src/modules/notifications/notifications.service.js');
 const { push } = await import('../src/modules/notifications/channels/push.channel.js');
+const settings = await import('../src/modules/settings/settings.service.js');
 const { renderInvoice } = await import('../src/modules/orders/orders.invoice.js');
 const { requirePermission } = await import('../src/common/middlewares/auth.js');
 
@@ -64,6 +65,8 @@ const webhook = (event, providerOrderId, paymentId) =>
 const variantRow = (id) => prisma.productVariant.findUnique({ where: { id } });
 
 // ---- fixtures ----
+// delivery free while the flows below run (a crashed earlier run may have left fee rules behind)
+await settings.updateShippingRules({ freeShippingAbove: null, shippingSlabs: [] });
 const user = await prisma.user.create({ data: { firebaseUid: `fb-${tag}`, email: `c-${tag}@x.in`, name: 'Cust' } });
 const ownerUser = await prisma.user.create({ data: { firebaseUid: `fbv-${tag}`, email: `v-${tag}@x.in`, role: 'VENDOR' } });
 const vendor = await prisma.vendor.create({ data: { storeName: 'Store', slug: `store-${tag}`, ownerUserId: ownerUser.id } });
@@ -344,6 +347,26 @@ assert.equal(detail.payments[0].refunds.length, 1);
 const recon = await payments.listPaymentsForAdmin({ page: 1, limit: 50, search: online.orderNumber });
 assert.equal(recon.items[0].refunded, 4500);
 assert.equal(recon.items[0].needsAttention, false);
+
+// ---- delivery fee rules, quote, GST breakup; commission is on goods only ----
+await settings.updateShippingRules({ freeShippingAbove: 1000, shippingSlabs: [{ upToKg: 5, fee: 90 }, { upToKg: 1, fee: 40 }] });
+assert.deepEqual((await settings.getShippingRules()).shippingSlabs.map((x) => x.upToKg), [1, 5]);
+assert.equal(settings.shippingFee(await settings.getShippingRules(), { weightKg: 9, goodsTotal: 10 }), 90, 'heavier than every slab');
+await catalog.updateProduct(cheap.id, { gstRate: 18, hsnCode: '8424' });
+await cart.addItem(user.id, { variantId: cheap.variantId, quantity: 1 });
+const q = await orders.quote(user.id);
+assert.deepEqual([q.subtotal, q.shipping, q.total, q.freeShippingAbove], [100, 40, 140, 1000]);
+assert.deepEqual(q.tax.lines, [{ rate: 18, taxable: 84.75, tax: 15.25 }]);
+const shipped = await orders.checkout(user, { addressId: address.id, paymentMethod: 'COD' });
+assert.equal(shipped.amount, 140);
+const shippedAdmin = await orders.getOrderForAdmin(shipped.orderId);
+assert.deepEqual([shippedAdmin.shipping, shippedAdmin.discount, shippedAdmin.items[0].gstRate], [40, 0, 18]);
+assert.equal(shippedAdmin.vendorAmount + shippedAdmin.platformAmount, 140);
+assert.equal(shippedAdmin.vendorAmount, Math.round(100 * (1 - Number(vendor.commissionPercent) / 100)), 'commission charged on delivery fee');
+await cart.addItem(user.id, { variantId: cheap.variantId, quantity: 10 });
+assert.equal((await orders.quote(user.id)).shipping, 0, 'free-shipping threshold ignored');
+await cart.clearCart(user.id);
+await settings.updateShippingRules({ freeShippingAbove: null, shippingSlabs: [] });
 
 // ---- manual stock adjustment can't eat into reserved stock ----
 await cart.addItem(user.id, { variantId: cheap.variantId, quantity: 2 });
