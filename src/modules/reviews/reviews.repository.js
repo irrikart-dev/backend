@@ -1,5 +1,10 @@
 import { prisma } from '../../config/db.js';
 
+const adminInclude = {
+  user: { select: { name: true, phone: true, email: true } },
+  product: { select: { id: true, title: true, slug: true } },
+};
+
 export default {
   // scoped by userId (via the order it belongs to) so an id from someone else's
   // order can't be reviewed — same 404-not-403 pattern as orders.findByIdForUser
@@ -18,6 +23,24 @@ export default {
     return prisma.review.create({
       data: { productId, userId, orderItemId, rating, comment, status },
     });
+  },
+
+  // ---- admin moderation ----
+
+  listForAdmin(where, { skip, take }) {
+    return prisma.review.findMany({ where, include: adminInclude, orderBy: { createdAt: 'desc' }, skip, take });
+  },
+
+  countForAdmin(where) {
+    return prisma.review.count({ where });
+  },
+
+  findById(id) {
+    return prisma.review.findUnique({ where: { id }, include: adminInclude });
+  },
+
+  updateStatus(id, status) {
+    return prisma.review.update({ where: { id }, data: { status }, include: adminInclude });
   },
 
   listForProduct(productId) {

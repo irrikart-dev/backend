@@ -6,6 +6,7 @@ import * as paymentsController from '../payments/payments.controller.js';
 import * as inventoryController from '../inventory/inventory.controller.js';
 import * as discountsController from '../discounts/discounts.controller.js';
 import * as rfqController from '../rfq/rfq.controller.js';
+import * as reviewsController from '../reviews/reviews.controller.js';
 import { authenticate, loadUser, authorize, requirePermission } from '../../common/middlewares/auth.js';
 import { validate } from '../../common/middlewares/validate.js';
 import { imageUpload } from '../../common/middlewares/upload.js';
@@ -35,6 +36,7 @@ import {
 } from './admin.validation.js';
 import { createCouponSchema, updateCouponSchema } from '../discounts/discounts.validation.js';
 import { listRfqQuerySchema, updateRfqSchema } from '../rfq/rfq.validation.js';
+import { listReviewsQuerySchema, reviewStatusSchema } from '../reviews/reviews.validation.js';
 import { cancelOrderSchema } from '../orders/orders.validation.js';
 import { createVendorSchema, updateVendorSchema } from '../vendors/vendors.validation.js';
 
@@ -54,7 +56,7 @@ router.use('/products', (req, res, next) => {
 });
 // catalogue counts and inventory value — nothing an orders/payments-only sub-admin needs
 router.use('/stats', catalogOrInventory);
-router.use(['/uploads', '/categories', '/brands', '/banners'], catalog);
+router.use(['/uploads', '/categories', '/brands', '/banners', '/reviews'], catalog);
 router.use('/inventory', inventory);
 router.use(['/orders', '/rfq'], requirePermission('orders'));
 router.use('/payments', requirePermission('payments'));
@@ -354,5 +356,26 @@ router.delete('/coupons/:id', discountsController.deleteCoupon);
 router.get('/rfq', validate(listRfqQuerySchema), rfqController.listForAdmin);
 router.get('/rfq/:id', rfqController.getForAdmin);
 router.patch('/rfq/:id', validate(updateRfqSchema), rfqController.updateForAdmin);
+
+/**
+ * @openapi
+ * /admin/reviews:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Review moderation queue — filter by status/rating, search comment/product/customer
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: "{ items, page, limit, total }" }
+ * /admin/reviews/{id}:
+ *   patch:
+ *     tags: [Admin]
+ *     summary: Approve or reject (hide) a review — recomputes the product and vendor rating
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Review }
+ *       404: { description: Review not found }
+ */
+router.get('/reviews', validate(listReviewsQuerySchema), reviewsController.listForAdmin);
+router.patch('/reviews/:id', validate(reviewStatusSchema), reviewsController.setStatusForAdmin);
 
 export default router;

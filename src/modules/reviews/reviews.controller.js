@@ -10,3 +10,15 @@ export const listForProduct = asyncHandler(async (req, res) => {
   const data = await service.listForProduct(req.params.productId);
   res.json({ success: true, data });
 });
+
+// ---- admin moderation (mounted under admin.routes.js) ----
+
+export const listForAdmin = asyncHandler(async (req, res) => {
+  const data = await service.listForAdmin(req.validated.query);
+  res.json({ success: true, data });
+});
+
+export const setStatusForAdmin = asyncHandler(async (req, res) => {
+  const data = await service.setStatusForAdmin(req.params.id, req.validated.body.status);
+  res.json({ success: true, data });
+});

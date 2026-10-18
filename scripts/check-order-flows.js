@@ -27,6 +27,7 @@ const cart = await import('../src/modules/cart/cart.service.js');
 const catalog = await import('../src/modules/catalog/catalog.service.js');
 const inventory = await import('../src/modules/inventory/inventory.service.js');
 const admin = await import('../src/modules/admin/admin.service.js');
+const reviews = await import('../src/modules/reviews/reviews.service.js');
 const { renderInvoice } = await import('../src/modules/orders/orders.invoice.js');
 const { requirePermission } = await import('../src/common/middlewares/auth.js');
 
@@ -171,6 +172,17 @@ await orders.advanceOrderForVendor(vendor.id, v1.orderId, 'SHIPPED');
 assert.equal((await orders.advanceOrderForAdmin(v1.orderId, 'DELIVERED')).status, 'DELIVERED');
 await assert.rejects(orders.cancelOrderByAdmin(v1.orderId, { reason: 'too late' }), /can't be cancelled/);
 await assert.rejects(orders.getOrderForVendor(otherVendor.id, v1.orderId), /not found/i);
+
+// ---- review moderation: hiding a review takes it out of the product rating ----
+const v1Item = (await orders.getOrder(user.id, v1.orderId)).items[0];
+await reviews.submitReview(user.id, { orderItemId: v1Item.id, rating: 4, comment: 'good' });
+const [queued] = (await reviews.listForAdmin({ search: cheap.name, page: 1, limit: 5 })).items;
+assert.equal(queued.status, 'APPROVED');
+await reviews.setStatusForAdmin(queued.id, 'REJECTED');
+assert.equal((await prisma.product.findUnique({ where: { id: cheap.id } })).reviewCount, 0);
+assert.equal((await reviews.listForProduct(cheap.id)).length, 0);
+await reviews.setStatusForAdmin(queued.id, 'APPROVED');
+assert.equal((await prisma.product.findUnique({ where: { id: cheap.id } })).rating, 4);
 
 await cart.addItem(user.id, { variantId: cheap.variantId, quantity: 3 });
 const v2 = await orders.checkout(user, { addressId: address.id, paymentMethod: 'COD' });

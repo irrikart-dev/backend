@@ -30,7 +30,7 @@ export async function submitReview(userId, { orderItemId, rating, comment }) {
     throw new ConflictError('You already reviewed this item');
   }
 
-  // auto-approved — no moderation queue this pass, per product decision
+  // live on submit — staff moderate after the fact (setStatusForAdmin)
   await repository.create({
     productId: orderItem.variant.productId,
     userId,
@@ -46,4 +46,44 @@ export async function submitReview(userId, { orderItemId, rating, comment }) {
 export async function listForProduct(productId) {
   const reviews = await repository.listForProduct(productId);
   return reviews.map(toReviewDto);
+}
+
+// ---- admin moderation ----
+// Reviews still go live on submit; moderation is after the fact — staff hide a
+// review by rejecting it (or restore it), and the product/vendor rating follows.
+
+function toAdminDto(r) {
+  return {
+    id: r.id,
+    rating: r.rating,
+    comment: r.comment,
+    status: r.status,
+    createdAt: r.createdAt,
+    product: r.product,
+    customer: r.user,
+  };
+}
+
+export async function listForAdmin({ status, rating, search, page, limit }) {
+  const contains = (field) => ({ [field]: { contains: search, mode: 'insensitive' } });
+  const where = {
+    ...(status ? { status } : {}),
+    ...(rating ? { rating } : {}),
+    ...(search
+      ? { OR: [contains('comment'), { product: contains('title') }, { user: { OR: ['name', 'phone', 'email'].map(contains) } }] }
+      : {}),
+  };
+  const [rows, total] = await Promise.all([
+    repository.listForAdmin(where, { skip: (page - 1) * limit, take: limit }),
+    repository.countForAdmin(where),
+  ]);
+  return { items: rows.map(toAdminDto), page, limit, total };
+}
+
+export async function setStatusForAdmin(id, status) {
+  const existing = await repository.findById(id);
+  if (!existing) throw new NotFoundError('Review not found');
+  const row = await repository.updateStatus(id, status);
+  if (existing.status !== status) await repository.recomputeProductRating(row.productId);
+  return toAdminDto(row);
 }

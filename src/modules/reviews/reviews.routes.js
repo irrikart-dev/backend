@@ -26,8 +26,8 @@ router.get('/product/:productId', controller.listForProduct);
  *     summary: Submit a review for a purchased order item
  *     description: >
  *       Gated to an order item on the caller's own order, with that order past PLACED
- *       (i.e. actually paid). One review per order item. Auto-approved — no moderation
- *       queue yet — and recomputes the product's rating/reviewCount immediately.
+ *       (i.e. actually paid). One review per order item. Live immediately — staff can
+ *       reject it later from the admin panel — and recomputes the product's rating/reviewCount.
  *     security: [{ bearerAuth: [] }]
  *     responses:
  *       201: { description: Review created }
