@@ -3,7 +3,10 @@ import { NotFoundError, BadRequestError, ConflictError } from '../../common/erro
 
 export async function validateCoupon(code, { userId, cartSubtotal }) {
   const coupon = await repository.findByCode(code.trim());
-  if (!coupon || !coupon.active) throw new NotFoundError('Coupon not found');
+  // someone else's personal coupon is "not found", not "not yours" — don't confirm it exists
+  if (!coupon || !coupon.active || (coupon.customerId && coupon.customerId !== userId)) {
+    throw new NotFoundError('Coupon not found');
+  }
 
   if (coupon.expiresAt && coupon.expiresAt < new Date()) {
     throw new BadRequestError('Coupon has expired');
@@ -22,7 +25,35 @@ export async function validateCoupon(code, { userId, cartSubtotal }) {
     if (uses >= coupon.perUserLimit) throw new ConflictError('You have already used this coupon');
   }
 
+  if (coupon.firstOrderOnly && (await repository.countRealOrders(userId)) > 0) {
+    throw new BadRequestError('This coupon is only for your first order');
+  }
+
   return coupon;
+}
+
+/** Coupons the app can show this customer right now — listed ones plus their personal ones, minus any they can't use. */
+export async function listOffers(userId) {
+  const now = new Date();
+  const [coupons, realOrders] = await Promise.all([repository.listOffersFor(userId, now), repository.countRealOrders(userId)]);
+  const { all, mine } = await repository.usageCounts(coupons.map((c) => c.id), userId);
+  return coupons
+    .filter(
+      (c) =>
+        !(c.firstOrderOnly && realOrders > 0) &&
+        !(c.usageLimit != null && (all.get(c.id) ?? 0) >= c.usageLimit) &&
+        !(c.perUserLimit != null && (mine.get(c.id) ?? 0) >= c.perUserLimit)
+    )
+    .map((c) => ({
+      code: c.code,
+      description: c.description,
+      type: c.type,
+      value: Number(c.value),
+      minCartValue: c.minCartValue == null ? null : Number(c.minCartValue),
+      expiresAt: c.expiresAt,
+      firstOrderOnly: c.firstOrderOnly,
+      personal: Boolean(c.customerId),
+    }));
 }
 
 export function calculateDiscount(coupon, cartSubtotal) {
@@ -52,6 +83,10 @@ function toCouponDto(c, stats) {
     perUserLimit: c.perUserLimit,
     expiresAt: c.expiresAt,
     active: c.active,
+    description: c.description,
+    listed: c.listed,
+    firstOrderOnly: c.firstOrderOnly,
+    customer: c.customer ?? null,
     createdAt: c.createdAt,
     uses: stats?.uses ?? 0,
     uniqueCustomers: stats?.users.size ?? 0,
@@ -80,14 +115,25 @@ export async function listCoupons() {
   return coupons.map((c) => toCouponDto(c, stats.get(c.id)));
 }
 
-export async function createCoupon(input) {
+// the admin form takes the customer's email or phone; stored as their user id
+async function withCustomer({ customerContact, ...input }) {
+  if (customerContact === undefined) return input;
+  if (!customerContact) return { ...input, customerId: null };
+  const user = await repository.findCustomerByContact(customerContact);
+  if (!user) throw new BadRequestError(`No customer account with email or phone ${customerContact}`);
+  return { ...input, customerId: user.id };
+}
+
+export async function createCoupon(raw) {
+  const input = await withCustomer(raw);
   const code = input.code.trim().toUpperCase();
   if (await repository.findByCode(code)) throw new ConflictError(`Coupon ${code} already exists`);
   const row = await repository.create({ ...input, code });
   return toCouponDto(row);
 }
 
-export async function updateCoupon(id, input) {
+export async function updateCoupon(id, raw) {
+  let input = await withCustomer(raw);
   const existing = await repository.findById(id);
   if (!existing) throw new NotFoundError('Coupon not found');
   // a partial patch can flip FLAT→PERCENT without resending value, so check the merged result

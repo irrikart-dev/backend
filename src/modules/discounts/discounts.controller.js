@@ -22,3 +22,10 @@ export const deleteCoupon = asyncHandler(async (req, res) => {
   await service.deleteCoupon(req.params.id);
   res.status(204).send();
 });
+
+// ---- customer ----
+
+export const listOffers = asyncHandler(async (req, res) => {
+  const data = await service.listOffers(req.user.id);
+  res.json({ success: true, data });
+});

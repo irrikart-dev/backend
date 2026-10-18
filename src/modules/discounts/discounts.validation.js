@@ -9,6 +9,11 @@ const couponFields = {
   perUserLimit: z.number().int().positive().nullable().optional(),
   expiresAt: z.coerce.date().nullable().optional(),
   active: z.boolean().optional(),
+  description: z.string().trim().max(120).nullable().optional(),
+  listed: z.boolean().optional(),
+  firstOrderOnly: z.boolean().optional(),
+  // email or phone of the one customer who may use it; null clears it
+  customerContact: z.string().trim().max(120).nullable().optional(),
 };
 
 const percentCap = (c) => c.type !== 'PERCENT' || c.value === undefined || c.value <= 100;

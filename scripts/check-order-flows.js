@@ -293,6 +293,22 @@ const re = await orders.reorder(user.id, v2.orderId);
 assert.equal(re.cart.itemCount, 3);
 await cart.clearCart(user.id);
 
+// ---- coupons: first-order and personal coupons, and the offers list ----
+const discounts = await import('../src/modules/discounts/discounts.service.js');
+const newbie = await prisma.user.create({ data: { firebaseUid: `fbn-${tag}`, email: `n-${tag}@x.in` } });
+const welcome = await discounts.createCoupon({ code: `WELCOME${tag}`, type: 'FLAT', value: 50, firstOrderOnly: true, listed: true, description: '₹50 off your first order' });
+const mineOnly = await discounts.createCoupon({ code: `JUSTYOU${tag}`, type: 'PERCENT', value: 5, customerContact: newbie.email.toUpperCase() });
+assert.equal(mineOnly.customer.id, newbie.id);
+await assert.rejects(discounts.createCoupon({ code: `NOBODY${tag}`, type: 'FLAT', value: 5, customerContact: 'ghost@x.in' }), /No customer account/);
+await assert.rejects(discounts.validateCoupon(welcome.code, { userId: user.id, cartSubtotal: 500 }), /first order/);
+await assert.rejects(discounts.validateCoupon(mineOnly.code, { userId: user.id, cartSubtotal: 500 }), /not found/i);
+assert.equal((await discounts.validateCoupon(mineOnly.code, { userId: newbie.id, cartSubtotal: 500 })).id, mineOnly.id);
+const offerCodes = async (u) => (await discounts.listOffers(u)).map((o) => o.code);
+assert.ok((await offerCodes(newbie.id)).includes(welcome.code) && (await offerCodes(newbie.id)).includes(mineOnly.code));
+assert.ok(!(await offerCodes(user.id)).includes(welcome.code), 'first-order offer shown to a repeat customer');
+assert.ok(!(await offerCodes(user.id)).includes(mineOnly.code), "someone else's personal coupon listed");
+assert.ok(!(await offerCodes(user.id)).includes(`TEN${tag}`.toUpperCase()), 'unlisted coupon in offers');
+
 // ---- notifications: lifecycle events land in the centre and on every device; dead tokens pruned ----
 const liveToken = `live-token-${tag}-0123456789`;
 const deadToken = `dead-token-${tag}-0123456789`;

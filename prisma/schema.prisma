@@ -48,18 +48,20 @@ model User {
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
 
-  addresses      Address[]
-  deviceTokens   DeviceToken[]
-  carts          Cart[]
-  orders         Order[]
-  wishlist       WishlistItem[]
-  recentlyViewed RecentlyViewed[]
-  reviews        Review[]
-  rfqRequests    RfqRequest[]
-  returnRequests ReturnRequest[]
-  notifications  Notification[]
-  couponUsages   CouponUsage[]
-  vendor         Vendor?
+  addresses       Address[]
+  deviceTokens    DeviceToken[]
+  carts           Cart[]
+  orders          Order[]
+  wishlist        WishlistItem[]
+  recentlyViewed  RecentlyViewed[]
+  reviews         Review[]
+  rfqRequests     RfqRequest[]
+  returnRequests  ReturnRequest[]
+  notifications   Notification[]
+  couponUsages    CouponUsage[]
+  // coupons issued to this customer alone
+  personalCoupons Coupon[]
+  vendor          Vendor?
 
   // every list of a user's own rows filters by userId then sorts by time —
   // covered case-by-case on the child tables (orders, notifications, etc).
@@ -632,22 +634,32 @@ enum CouponType {
 }
 
 model Coupon {
-  id           String     @id @default(cuid())
-  code         String     @unique
-  type         CouponType
-  value        Decimal    @db.Decimal(10, 2)
-  minCartValue Decimal?   @db.Decimal(10, 2)
-  usageLimit   Int?
-  perUserLimit Int?
-  expiresAt    DateTime?
+  id             String     @id @default(cuid())
+  code           String     @unique
+  type           CouponType
+  value          Decimal    @db.Decimal(10, 2)
+  minCartValue   Decimal?   @db.Decimal(10, 2)
+  usageLimit     Int?
+  perUserLimit   Int?
+  expiresAt      DateTime?
   // switched off from the admin panel instead of deleting — used coupons are
   // referenced by CouponUsage rows and can't be removed
-  active       Boolean    @default(true)
-  createdAt    DateTime   @default(now())
+  active         Boolean    @default(true)
+  // one line for the app's offers list, e.g. "10% off your first drip kit"
+  description    String?
+  // shown in the app's offers list — otherwise customers need to know the code
+  listed         Boolean    @default(false)
+  // only for a customer who has no confirmed order yet
+  firstOrderOnly Boolean    @default(false)
+  // set = only this customer can apply it (and it shows in their offers list)
+  customerId     String?
+  customer       User?      @relation(fields: [customerId], references: [id])
+  createdAt      DateTime   @default(now())
 
   usages CouponUsage[]
 
   @@index([expiresAt])
+  @@index([customerId])
 }
 
 model CouponUsage {
