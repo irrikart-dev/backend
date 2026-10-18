@@ -82,9 +82,8 @@ const CANCELLED_BY = {
 };
 
 function refundLine(refund) {
-  if (!refund?.amount || refund.status === 'failed' || refund.status === 'none') return '';
-  if (refund.status === 'manual') return ` We'll pay ${rupees(refund.amount)} back to you directly.`;
-  return ` ${rupees(refund.amount)} is on its way back to your original payment method.`;
+  if (refund?.status !== 'credited' || !refund.amount) return '';
+  return ` ${rupees(refund.amount)} has been added to your IrriKart wallet.`;
 }
 
 const ORDER_COPY = {
@@ -103,10 +102,6 @@ const ORDER_COPY = {
   ORDER_CANCELLED: (o, { refund }) => [
     'Order cancelled',
     `${o.orderNumber} was cancelled${CANCELLED_BY[o.cancelledBy] ?? ''}.${refundLine(refund)}`,
-  ],
-  ORDER_RETURNED: (o, { refund }) => [
-    'Order returned to us',
-    `${o.orderNumber} couldn't be delivered and came back to us.${refundLine(refund)}`,
   ],
   RETURN_APPROVED: (o, { note }) => [
     'Return approved',

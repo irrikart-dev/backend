@@ -46,8 +46,3 @@ export const complete = asyncHandler(async (req, res) => {
   const data = await service.complete(req.params.id, req.validated.body);
   res.json({ success: true, data });
 });
-
-export const receiveRto = asyncHandler(async (req, res) => {
-  const data = await service.receiveRto(req.params.id);
-  res.json({ success: true, data });
-});

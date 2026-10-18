@@ -35,7 +35,6 @@ function toVendorDto(v) {
     status: v.status,
     commissionPercent: Number(v.commissionPercent),
     legalBusinessName: v.legalBusinessName,
-    gstin: v.gstin,
     contactEmail: v.contactEmail,
     contactPhone: v.contactPhone,
     razorpayAccountId: v.razorpayAccountId,
@@ -89,7 +88,6 @@ export async function createVendor(input) {
     slug,
     commissionPercent: input.commissionPercent ?? 10,
     legalBusinessName: input.legalBusinessName ?? null,
-    gstin: input.gstin ?? null,
     contactEmail: input.contactEmail ?? null,
     contactPhone: input.contactPhone ?? null,
     razorpayAccountId: input.razorpayAccountId,
@@ -115,7 +113,6 @@ export async function updateVendor(id, input) {
     ...(input.status !== undefined ? { status: input.status } : {}),
     ...(input.commissionPercent !== undefined ? { commissionPercent: input.commissionPercent } : {}),
     ...(input.legalBusinessName !== undefined ? { legalBusinessName: input.legalBusinessName } : {}),
-    ...(input.gstin !== undefined ? { gstin: input.gstin } : {}),
     ...(input.contactEmail !== undefined ? { contactEmail: input.contactEmail } : {}),
     ...(input.contactPhone !== undefined ? { contactPhone: input.contactPhone } : {}),
     ...(input.razorpayAccountId !== undefined ? { razorpayAccountId: input.razorpayAccountId, routeStatus } : {}),
@@ -141,6 +138,11 @@ export function transferPayout(razorpayAccountId, providerPaymentId, amountPaise
   return routeProvider.transfer(providerPaymentId, [
     { account: razorpayAccountId, amount: amountPaise, currency: 'INR' },
   ]);
+}
+
+/** Claws back part of a Route transfer — e.g. the vendor's share of an order refunded to the customer's wallet. */
+export function reverseTransfer(transferId, amountPaise) {
+  return routeProvider.reverseTransfer(transferId, amountPaise);
 }
 
 export async function listPayouts(vendorId) {

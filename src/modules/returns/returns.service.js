@@ -194,8 +194,7 @@ export function reject(id, { note }) {
 /**
  * Goods are back: optionally restock them, refund the customer (pro-rata by default,
  * or `refundAmount` if staff override it), and mark the order RETURNED once every
- * unit on it has come back. COD orders are paid back outside the gateway, so their
- * refund is recorded as "manual".
+ * unit on it has come back. The refund is wallet credit, COD orders included.
  */
 export async function complete(id, { restock = true, refundAmount, note }) {
   const row = await findOrThrow(id);
@@ -232,44 +231,11 @@ export async function complete(id, { restock = true, refundAmount, note }) {
 
   let refund = null;
   if (amount > 0) {
-    // refundOrder caps at what's still refundable (an earlier manual refund may have
-    // covered some of it) — record what actually went back, not what was asked for
-    refund =
-      order.paymentMethod === 'COD'
-        ? { status: 'manual', amount }
-        : ((await payments.refundOrder(order.id, { reason: `Return: ${row.reason}`, amount })) ?? { status: 'failed', amount });
+    // credited to the wallet, capped at what's still refundable (an earlier manual
+    // refund may have covered some of it) — record what actually went back
+    refund = await payments.refundOrderToWallet(order.id, { reason: `Return: ${row.reason}`, amount });
     await repository.update(id, { refundAmount: refund.amount, refundStatus: refund.status });
   }
   await notifications.notifyOrderEvent(order.id, 'RETURN_COMPLETED', { refund });
   return getForAdmin(id);
-}
-
-/**
- * The courier brought an undelivered parcel back (RTO): the whole order is returned,
- * its stock goes back on the shelf and a paid online order is refunded in full.
- */
-export async function receiveRto(orderId) {
-  const order = await repository.findOrderForReturn(orderId);
-  if (!order) throw new NotFoundError('Order not found');
-  const shipment = await prisma.shipment.findUnique({ where: { orderId } });
-  if (!shipment || !['RTO', 'FAILED'].includes(shipment.status)) {
-    throw new ConflictError('The courier has not reported this shipment as returned or failed');
-  }
-  const IN_TRANSIT = ['CONFIRMED', 'PACKED', 'SHIPPED'];
-  if (!IN_TRANSIT.includes(order.status)) throw new ConflictError(`A ${order.status.toLowerCase()} order can't be marked as returned`);
-
-  await prisma.$transaction(async (tx) => {
-    const { count } = await repository.transitionOrder(orderId, IN_TRANSIT, { status: 'RETURNED' }, tx);
-    if (count === 0) throw new ConflictError('This order was just updated — refresh and try again');
-    for (const i of order.items) {
-      await inventory.restockReturnedStock(tx, i.variantId, i.quantity, { refType: 'rto', refId: orderId });
-    }
-  });
-
-  const refund =
-    order.paymentMethod === 'ONLINE'
-      ? await payments.refundOrder(orderId, { reason: 'Returned to origin — not delivered' })
-      : null;
-  await notifications.notifyOrderEvent(orderId, 'ORDER_RETURNED', { refund });
-  return { orderId, status: 'RETURNED', refundStatus: refund?.status ?? null };
 }

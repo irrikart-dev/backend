@@ -10,16 +10,6 @@ export const verifyPaymentSchema = z.object({
   }),
 });
 
-export const listRefundsQuerySchema = z.object({
-  query: z.object({
-    status: z.enum(['pending', 'processed', 'failed']).optional(),
-    from: z.coerce.date().optional(),
-    to: z.coerce.date().optional(),
-    search: z.string().trim().optional(),
-    page: z.coerce.number().int().positive().default(1),
-    limit: z.coerce.number().int().positive().max(100).default(25),
-  }),
-});
 
 export const manualRefundSchema = z.object({
   body: z.object({

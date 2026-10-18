@@ -33,9 +33,6 @@ export const productBodyFields = {
   brandId: z.string().min(1).nullable().optional(),
   inStock: z.boolean().optional(),
   status: productStatus.optional(),
-  // GST % included in the price (slabs change — 5 and 18 cover most of the catalogue)
-  gstRate: z.number().min(0).max(40).nullable().optional(),
-  hsnCode: z.string().trim().regex(/^\d{4,8}$/, 'HSN codes are 4–8 digits').nullable().optional(),
   ...shippingDims,
 };
 
@@ -60,9 +57,6 @@ export const updateProductSchema = z.object({
     brandId: z.string().min(1).nullable().optional(),
     inStock: z.boolean().optional(),
     status: productStatus.optional(),
-    // GST % included in the price (slabs change — 5 and 18 cover most of the catalogue)
-    gstRate: z.number().min(0).max(40).nullable().optional(),
-    hsnCode: z.string().trim().regex(/^\d{4,8}$/, 'HSN codes are 4–8 digits').nullable().optional(),
     ...shippingDims,
   }),
 });

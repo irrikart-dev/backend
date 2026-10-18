@@ -29,10 +29,10 @@ const inventory = await import('../src/modules/inventory/inventory.service.js');
 const admin = await import('../src/modules/admin/admin.service.js');
 const reviews = await import('../src/modules/reviews/reviews.service.js');
 const returns = await import('../src/modules/returns/returns.service.js');
-const shipping = await import('../src/modules/shipping/shipping.service.js');
 const notifications = await import('../src/modules/notifications/notifications.service.js');
 const { push } = await import('../src/modules/notifications/channels/push.channel.js');
-const settings = await import('../src/modules/settings/settings.service.js');
+const wallet = await import('../src/modules/wallet/wallet.service.js');
+const { routeProvider } = await import('../src/modules/vendors/providers/razorpayRoute.provider.js');
 const { renderInvoice } = await import('../src/modules/orders/orders.invoice.js');
 const { requirePermission } = await import('../src/common/middlewares/auth.js');
 
@@ -49,6 +49,14 @@ Object.assign(paymentProvider, {
   },
   verifyWebhookSignature: () => true,
 });
+// ---- Route stub: records vendor-share reversals; `failReversal` makes the next one fail ----
+const reversals = [];
+let failReversal = false;
+routeProvider.reverseTransfer = async (transferId, amount) => {
+  if (failReversal) throw new Error('reversal rejected');
+  reversals.push({ transferId, amount });
+};
+
 // ---- push stub: tokens starting "dead" come back as uninstalled ----
 const pushes = [];
 push.sendToTokens = async (tokens, message) => {
@@ -65,8 +73,6 @@ const webhook = (event, providerOrderId, paymentId) =>
 const variantRow = (id) => prisma.productVariant.findUnique({ where: { id } });
 
 // ---- fixtures ----
-// delivery free while the flows below run (a crashed earlier run may have left fee rules behind)
-await settings.updateShippingRules({ freeShippingAbove: null, shippingSlabs: [] });
 const user = await prisma.user.create({ data: { firebaseUid: `fb-${tag}`, email: `c-${tag}@x.in`, name: 'Cust' } });
 const ownerUser = await prisma.user.create({ data: { firebaseUid: `fbv-${tag}`, email: `v-${tag}@x.in`, role: 'VENDOR' } });
 const vendor = await prisma.vendor.create({ data: { storeName: 'Store', slug: `store-${tag}`, ownerUserId: ownerUser.id } });
@@ -145,12 +151,15 @@ assert.deepEqual(await variantRow(pricey.variantId).then((v) => [v.stock, v.rese
 const pdf = await renderInvoice(await orders.getOrderForInvoice(online.orderId, { userId: user.id }));
 assert.equal(pdf.subarray(0, 4).toString(), '%PDF');
 
-// ---- customer cancels a paid order: restock + full refund ----
+// ---- customer cancels a paid order: restock, full refund to the wallet ----
+const walletBal = () => wallet.balanceFor(user.id);
+let balance = await walletBal();
 const cancelled = await orders.cancelOrderByCustomer(user.id, online.orderId, { reason: 'changed my mind' });
 assert.equal(cancelled.status, 'CANCELLED');
-assert.equal(cancelled.refundStatus, 'processed');
-assert.equal(refunds.at(-1).amount, 4500 * 100);
-assert.deepEqual(cancelled.refunds.map((r) => [r.amount, r.status]), [[4500, 'processed']]);
+assert.equal(cancelled.refundStatus, 'credited');
+assert.equal(await walletBal(), (balance += 4500));
+assert.deepEqual(cancelled.refunds.map((r) => [r.amount, r.status]), [[4500, 'credited']]);
+assert.equal((await wallet.getMine(user.id)).transactions[0].order.id, online.orderId);
 assert.equal((await variantRow(pricey.variantId)).stock, 5);
 await assert.rejects(orders.getOrderForInvoice(online.orderId, { userId: user.id }), /No invoice/);
 
@@ -158,9 +167,8 @@ await assert.rejects(orders.getOrderForInvoice(online.orderId, { userId: user.id
 await cart.addItem(user.id, { variantId: cheap.variantId, quantity: 4 });
 const failedThenCancelled = await orders.checkout(user, { addressId: address.id });
 await webhook('payment.failed', failedThenCancelled.providerOrderId, `pay_f2_${tag}`);
-const refundsBefore = refunds.length;
 assert.equal((await orders.cancelOrderByCustomer(user.id, failedThenCancelled.orderId, { reason: 'gave up' })).refundStatus, null);
-assert.equal(refunds.length, refundsBefore);
+assert.equal(await walletBal(), balance, 'unpaid order credited the wallet');
 assert.equal((await variantRow(cheap.variantId)).reserved, 0);
 await assert.rejects(orders.payOrder(user, failedThenCancelled.orderId), /cancelled/);
 
@@ -171,9 +179,8 @@ await prisma.order.update({ where: { id: stale.orderId }, data: { createdAt: new
 await orders.expireStaleOrders();
 assert.equal((await orders.getOrder(user.id, stale.orderId)).status, 'CANCELLED');
 assert.equal((await variantRow(cheap.variantId)).reserved, 0);
-const refundCount = refunds.length;
 await webhook('payment.captured', stale.providerOrderId, `pay_late_${tag}`);
-assert.equal(refunds.length, refundCount + 1, 'late capture not refunded');
+assert.equal(await walletBal(), (balance += stale.amount), 'late capture not credited');
 
 // ---- vendor flow: accept → pack → ship, admin delivers; reject refunds ----
 await cart.addItem(user.id, { variantId: cheap.variantId, quantity: 1 });
@@ -205,7 +212,7 @@ const before = (await variantRow(cheap.variantId)).stock;
 assert.equal((await orders.rejectOrder(vendor.id, v2.orderId, { reason: 'out of stock' })).status, 'CANCELLED');
 assert.equal((await variantRow(cheap.variantId)).stock, before + 3);
 
-// ---- returns: one open request per order, COD refund is manual, full return → RETURNED ----
+// ---- returns: one open request per order, COD refund goes to the wallet too, full return → RETURNED ----
 assert.ok((await orders.getOrder(user.id, v1.orderId)).returnableUntil, 'delivered order has no return window');
 const ret = (orderId, extra = {}) => returns.requestReturn(user.id, { orderId, type: 'RETURN', reason: 'damaged', photoUrls: [], ...extra });
 await assert.rejects(ret(v1.orderId, { items: [{ orderItemId: v1Item.id, quantity: v1Item.quantity + 1 }] }), /can still be returned/);
@@ -213,7 +220,8 @@ const rq = await ret(v1.orderId);
 await assert.rejects(ret(v1.orderId), /already in progress/);
 let shelf = (await variantRow(cheap.variantId)).stock;
 const rqDone = await returns.complete(rq.id, {});
-assert.deepEqual([rqDone.status, rqDone.refundStatus, rqDone.refundAmount], ['COMPLETED', 'manual', v1Item.totalPrice]);
+assert.deepEqual([rqDone.status, rqDone.refundStatus, rqDone.refundAmount], ['COMPLETED', 'credited', v1Item.totalPrice]);
+assert.equal(await walletBal(), (balance += v1Item.totalPrice));
 assert.equal((await variantRow(cheap.variantId)).stock, shelf + v1Item.quantity);
 assert.equal((await orders.getOrder(user.id, v1.orderId)).status, 'RETURNED');
 await assert.rejects(ret(v1.orderId), /Only a delivered order/);
@@ -236,16 +244,25 @@ const mixed = await deliveredOnline(
 );
 assert.equal(mixed.amount, 990);
 const priceyLine = mixed.items.find((i) => i.variantId === pricey.variantId);
+// as if this seller had a Route account: their share was transferred at capture
+const mixedPayment = await prisma.payment.findFirst({ where: { orderId: mixed.id } });
+await prisma.payment.update({ where: { id: mixedPayment.id }, data: { transferId: `trf_${tag}`, transferStatus: 'processed' } });
+const mixedVendorAmount = (await orders.getOrderForAdmin(mixed.id)).vendorAmount;
 const partial = await ret(mixed.id, { type: 'RETURN', items: [{ orderItemId: priceyLine.id, quantity: 1 }] });
 assert.equal((await returns.getForAdmin(partial.id)).suggestedRefund, 810);
 await returns.approve(partial.id, { note: 'pickup booked' });
 const partialDone = await returns.complete(partial.id, { restock: false });
-assert.deepEqual([partialDone.refundAmount, partialDone.refundStatus], [810, 'processed']);
-assert.equal(refunds.at(-1).amount, 810 * 100);
+assert.deepEqual([partialDone.refundAmount, partialDone.refundStatus], [810, 'credited']);
+assert.equal(await walletBal(), (balance += 810));
+assert.deepEqual(reversals.at(-1), { transferId: `trf_${tag}`, amount: Math.round((810 / 990) * mixedVendorAmount * 100) });
 assert.equal((await orders.getOrder(user.id, mixed.id)).status, 'DELIVERED', 'partial return closed the order');
 
-await assert.rejects(payments.refundOrderByAdmin({ orderId: mixed.id, amount: 200, reason: 'goodwill' }), /Only ₹180/);
-assert.equal((await payments.refundOrderByAdmin({ orderId: mixed.id, amount: 80, reason: 'goodwill' })).amount, 80);
+await assert.rejects(payments.creditOrderByAdmin({ orderId: mixed.id, amount: 200, reason: 'goodwill' }, ownerUser.id), /Only ₹180/);
+failReversal = true;
+assert.equal((await payments.creditOrderByAdmin({ orderId: mixed.id, amount: 80, reason: 'goodwill' }, ownerUser.id)).amount, 80);
+failReversal = false;
+const flagged = await payments.listPaymentsForAdmin({ page: 1, limit: 5, search: mixed.orderNumber });
+assert.deepEqual([flagged.items[0].transferStatus, flagged.items[0].needsAttention], ['reversal_failed', true]);
 // a refund made in the Razorpay dashboard arrives by webhook only, then settles
 const dashRefund = (event, status) =>
   payments.handleWebhookEvent(Buffer.from('{}'), 'sig', {
@@ -257,46 +274,26 @@ const dashRefund = (event, status) =>
   });
 await dashRefund('refund.created', 'pending');
 await dashRefund('refund.processed', 'processed');
-const refundList = await payments.listRefundsForAdmin({ search: mixed.orderNumber, page: 1, limit: 10 });
-assert.deepEqual(refundList.items.map((r) => [r.amount, r.status]).sort(), [[50, 'processed'], [80, 'processed'], [810, 'processed']]);
-assert.equal((await payments.refundOrderByAdmin({ orderId: mixed.id, reason: 'close out' })).amount, 50);
-await assert.rejects(payments.refundOrderByAdmin({ orderId: mixed.id, reason: 'again' }), /refunded in full/);
+// that ₹50 counts as given back: only 180 − 80 − 50 is left to credit
+assert.equal((await payments.creditOrderByAdmin({ orderId: mixed.id, reason: 'close out' }, ownerUser.id)).amount, 50);
+await assert.rejects(payments.creditOrderByAdmin({ orderId: mixed.id, reason: 'again' }, ownerUser.id), /refunded in full/);
+const refundList = await wallet.listRefundsForAdmin({ search: mixed.orderNumber, page: 1, limit: 10 });
+assert.deepEqual(refundList.items.map((r) => [r.amount, r.manual]).sort(), [[50, true], [80, true], [810, false]]);
+assert.equal(refundList.summary.credited, 940);
 await assert.rejects(returns.reject(partial.id, { note: 'too late' }), /already completed/);
 // already refunded in full by hand: returning the rest refunds nothing more, and says so
 const rest = await returns.complete((await ret(mixed.id)).id, {});
 assert.deepEqual([rest.refundAmount, rest.refundStatus], [0, 'none']);
 assert.equal((await orders.getOrder(user.id, mixed.id)).status, 'RETURNED');
 
-// ---- courier feed moves the order; return window closes ----
+// ---- return window closes ----
 await cart.addItem(user.id, { variantId: cheap.variantId, quantity: 1 });
-const fed = await orders.checkout(user, { addressId: address.id, paymentMethod: 'COD' });
-await prisma.shipment.create({ data: { orderId: fed.orderId, shiprocketShipmentId: `sr_fed_${tag}` } });
-// an unverified webhook (no SHIPROCKET_WEBHOOK_TOKEN) records tracking but never moves the order
-await shipping.recordWebhookEvent({ shipment_id: `sr_fed_${tag}`, current_status: 'DELIVERED' }, { verified: false });
-assert.equal((await orders.getOrderForAdmin(fed.orderId)).status, 'CONFIRMED');
-await shipping.recordWebhookEvent({ shipment_id: `sr_fed_${tag}`, current_status: 'IN TRANSIT' });
-let fedOrder = await orders.getOrderForAdmin(fed.orderId);
-assert.deepEqual([fedOrder.status, fedOrder.accepted], ['SHIPPED', true]);
-await shipping.recordWebhookEvent({ shipment_id: `sr_fed_${tag}`, current_status: 'DELIVERED' });
-fedOrder = await orders.getOrderForAdmin(fed.orderId);
-assert.equal(fedOrder.status, 'DELIVERED');
-assert.ok(fedOrder.deliveredAt);
-await prisma.order.update({ where: { id: fed.orderId }, data: { deliveredAt: new Date(Date.now() - 30 * 86400_000) } });
-await assert.rejects(ret(fed.orderId), /within 7 days/);
-
-// ---- RTO: parcel comes back undelivered — order RETURNED, restocked, online payment refunded ----
-await cart.addItem(user.id, { variantId: cheap.variantId, quantity: 2 });
-const rto = await orders.checkout(user, { addressId: address.id });
-await webhook('payment.captured', rto.providerOrderId, `pay_rto_${tag}`);
-await assert.rejects(returns.receiveRto(rto.orderId), /not reported/);
-await prisma.shipment.create({ data: { orderId: rto.orderId, shiprocketShipmentId: `sr_rto_${tag}` } });
-await shipping.recordWebhookEvent({ shipment_id: `sr_rto_${tag}`, current_status: 'RTO' });
-assert.ok((await shipping.listIssuesForAdmin()).shipments.some((x) => x.order.id === rto.orderId));
-shelf = (await variantRow(cheap.variantId)).stock;
-assert.deepEqual(await returns.receiveRto(rto.orderId), { orderId: rto.orderId, status: 'RETURNED', refundStatus: 'processed' });
-assert.equal(refunds.at(-1).amount, 200 * 100);
-assert.equal((await variantRow(cheap.variantId)).stock, shelf + 2);
-await assert.rejects(returns.receiveRto(rto.orderId), /can't be marked/);
+const late = await orders.checkout(user, { addressId: address.id, paymentMethod: 'COD' });
+await orders.advanceOrderForAdmin(late.orderId, 'PACKED');
+await orders.advanceOrderForAdmin(late.orderId, 'SHIPPED');
+await orders.advanceOrderForAdmin(late.orderId, 'DELIVERED');
+await prisma.order.update({ where: { id: late.orderId }, data: { deliveredAt: new Date(Date.now() - 30 * 86400_000) } });
+await assert.rejects(ret(late.orderId), /within 7 days/);
 
 // ---- reorder ----
 const re = await orders.reorder(user.id, v2.orderId);
@@ -348,32 +345,12 @@ await notifications.removeDevice(user.id, { fcmToken: liveToken });
 
 // ---- admin console ----
 const adminList = await orders.listOrdersForAdmin({ page: 1, limit: 50, search: user.email });
-assert.equal(adminList.total, 10);
+assert.equal(adminList.total, 9);
 const detail = await orders.getOrderForAdmin(online.orderId);
-assert.equal(detail.payments[0].refunds.length, 1);
+assert.deepEqual([detail.payments[0].refunds.length, detail.refunds[0].status, detail.refundable], [0, 'credited', 0]);
 const recon = await payments.listPaymentsForAdmin({ page: 1, limit: 50, search: online.orderNumber });
 assert.equal(recon.items[0].refunded, 4500);
 assert.equal(recon.items[0].needsAttention, false);
-
-// ---- delivery fee rules, quote, GST breakup; commission is on goods only ----
-await settings.updateShippingRules({ freeShippingAbove: 1000, shippingSlabs: [{ upToKg: 5, fee: 90 }, { upToKg: 1, fee: 40 }] });
-assert.deepEqual((await settings.getShippingRules()).shippingSlabs.map((x) => x.upToKg), [1, 5]);
-assert.equal(settings.shippingFee(await settings.getShippingRules(), { weightKg: 9, goodsTotal: 10 }), 90, 'heavier than every slab');
-await catalog.updateProduct(cheap.id, { gstRate: 18, hsnCode: '8424' });
-await cart.addItem(user.id, { variantId: cheap.variantId, quantity: 1 });
-const q = await orders.quote(user.id);
-assert.deepEqual([q.subtotal, q.shipping, q.total, q.freeShippingAbove], [100, 40, 140, 1000]);
-assert.deepEqual(q.tax.lines, [{ rate: 18, taxable: 84.75, tax: 15.25 }]);
-const shipped = await orders.checkout(user, { addressId: address.id, paymentMethod: 'COD' });
-assert.equal(shipped.amount, 140);
-const shippedAdmin = await orders.getOrderForAdmin(shipped.orderId);
-assert.deepEqual([shippedAdmin.shipping, shippedAdmin.discount, shippedAdmin.items[0].gstRate], [40, 0, 18]);
-assert.equal(shippedAdmin.vendorAmount + shippedAdmin.platformAmount, 140);
-assert.equal(shippedAdmin.vendorAmount, Math.round(100 * (1 - Number(vendor.commissionPercent) / 100)), 'commission charged on delivery fee');
-await cart.addItem(user.id, { variantId: cheap.variantId, quantity: 10 });
-assert.equal((await orders.quote(user.id)).shipping, 0, 'free-shipping threshold ignored');
-await cart.clearCart(user.id);
-await settings.updateShippingRules({ freeShippingAbove: null, shippingSlabs: [] });
 
 // ---- manual stock adjustment can't eat into reserved stock ----
 await cart.addItem(user.id, { variantId: cheap.variantId, quantity: 2 });
@@ -383,6 +360,8 @@ await assert.rejects(inventory.adjustStock(cheap.variantId, { delta: -(v.stock -
 await inventory.adjustStock(cheap.variantId, { delta: 10, note: 'received' }, user.id);
 assert.equal((await inventory.history(cheap.variantId))[0].note, 'received');
 await assert.rejects(catalog.updateProductStock(cheap.id, { stock: 1 }), /reserved/);
+
+assert.equal(refunds.length, 0, 'a cash refund went to the gateway — refunds must go to the wallet');
 
 // ---- staff / RBAC ----
 const staffUser = await prisma.user.create({ data: { firebaseUid: `fbs-${tag}`, email: `s-${tag}@x.in` } });

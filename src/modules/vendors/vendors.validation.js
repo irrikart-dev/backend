@@ -9,8 +9,6 @@ export const createVendorSchema = z.object({
     ownerEmail: z.string().email(),
     commissionPercent: z.number().min(0).max(100).optional(),
     legalBusinessName: z.string().optional(),
-    // 15-character GST registration number, printed on tax invoices
-    gstin: z.string().trim().toUpperCase().regex(/^[0-9A-Z]{15}$/, 'GSTIN is 15 letters and digits').nullable().optional(),
     contactEmail: z.string().email().optional(),
     contactPhone: z.string().optional(),
     // required at create time — a vendor with no linked account can never receive a
@@ -26,8 +24,6 @@ export const updateVendorSchema = z.object({
     status: z.enum(['ACTIVE', 'SUSPENDED']).optional(),
     commissionPercent: z.number().min(0).max(100).optional(),
     legalBusinessName: z.string().optional(),
-    // 15-character GST registration number, printed on tax invoices
-    gstin: z.string().trim().toUpperCase().regex(/^[0-9A-Z]{15}$/, 'GSTIN is 15 letters and digits').nullable().optional(),
     contactEmail: z.string().email().optional(),
     contactPhone: z.string().optional(),
     razorpayAccountId: z.string().min(1).nullable().optional(),

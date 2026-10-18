@@ -8,10 +8,6 @@ export const checkoutSchema = z.object({
   }),
 });
 
-export const quoteSchema = z.object({
-  body: z.object({ couponCode: z.string().trim().min(1).max(40).optional() }),
-});
-
 export const cancelOrderSchema = z.object({
   body: z.object({ reason: z.string().trim().min(3).max(500) }),
 });

@@ -4,8 +4,9 @@ import PDFDocument from 'pdfkit';
 const money = (n) => `Rs. ${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /**
- * Renders an order invoice as a PDF buffer. Prices are GST-inclusive; the tax lines
- * split out what each rate contributed (order.tax, see orders.service.js taxBreakup).
+ * Renders an order invoice as a PDF buffer.
+ * ponytail: no GST breakup — the catalogue stores tax-inclusive prices with no HSN/rate
+ * per product. Add tax lines here once products carry a GST rate.
  */
 export function renderInvoice({ order, vendor }) {
   return new Promise((resolve, reject) => {
@@ -27,7 +28,6 @@ export function renderInvoice({ order, vendor }) {
     const top = doc.y;
     doc.font('Helvetica-Bold').text('Sold by', 50, top);
     doc.font('Helvetica').text(vendor?.legalBusinessName || vendor?.storeName || 'IrriKart', 50, top + 14);
-    if (vendor?.gstin) doc.text(`GSTIN: ${vendor.gstin}`);
     if (vendor?.contactEmail) doc.text(vendor.contactEmail);
 
     const a = order.address;
@@ -51,8 +51,7 @@ export function renderInvoice({ order, vendor }) {
     y += 6;
     doc.font('Helvetica');
     for (const item of order.items) {
-      const tax = [item.hsnCode && `HSN ${item.hsnCode}`, item.gstRate != null && `GST ${item.gstRate}%`].filter(Boolean);
-      const label = `${item.name}\nSKU ${item.sku}${tax.length ? ` · ${tax.join(' · ')}` : ''}`;
+      const label = `${item.name}\nSKU ${item.sku}`;
       const h = doc.heightOfString(label, { width: 270 });
       if (y + h > 760) {
         doc.addPage();
@@ -74,11 +73,7 @@ export function renderInvoice({ order, vendor }) {
     };
     line('Subtotal', money(order.subtotal));
     if (order.discount > 0) line('Discount', `- ${money(order.discount)}`);
-    if (order.shipping > 0) line('Delivery', money(order.shipping));
     line('Total', money(order.amount), true);
-    for (const t of order.tax?.lines ?? []) {
-      line(`incl. GST ${t.rate}%`, money(t.tax));
-    }
 
     doc
       .font('Helvetica')

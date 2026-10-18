@@ -107,7 +107,7 @@ export async function listCoupons() {
     const total = Number(u.order.totalAmount);
     s.uses += 1;
     s.users.add(u.userId);
-    s.discountGiven += Math.max(subtotal - (total - Number(u.order.shippingAmount ?? 0)), 0);
+    s.discountGiven += Math.max(subtotal - total, 0);
     s.revenue += total;
     stats.set(u.couponId, s);
   }

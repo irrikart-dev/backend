@@ -31,8 +31,6 @@ export default {
   // exact "Pickup Location" nickname set up in Shiprocket's dashboard —
   // every create-order call must reference it by this exact string
   SHIPROCKET_PICKUP_LOCATION: process.env.SHIPROCKET_PICKUP_LOCATION,
-  // that pickup location's pincode — the origin for serviceability / delivery estimates
-  SHIPROCKET_PICKUP_PINCODE: process.env.SHIPROCKET_PICKUP_PINCODE,
   // optional shared secret — set the same value as the webhook's custom header
   // in Shiprocket's dashboard (Settings > API > Webhooks) to verify callers
   SHIPROCKET_WEBHOOK_TOKEN: process.env.SHIPROCKET_WEBHOOK_TOKEN,

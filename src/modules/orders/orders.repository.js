@@ -15,6 +15,7 @@ const orderItemInclude = {
   },
   address: true,
   refunds: { orderBy: { createdAt: 'asc' } },
+  walletTransactions: { where: { type: 'REFUND' }, orderBy: { createdAt: 'asc' } },
   ...latestPayment,
 };
 
@@ -36,7 +37,6 @@ export default {
       status = 'PLACED',
       paymentMethod = 'ONLINE',
       totalAmount,
-      shippingAmount = 0,
       vendorAmount,
       platformAmount,
       items,
@@ -53,17 +53,14 @@ export default {
         status,
         paymentMethod,
         totalAmount,
-        shippingAmount,
         vendorAmount,
         platformAmount,
         items: {
-          create: items.map(({ variantId, quantity, unitPrice, totalPrice, gstRate = null, hsnCode = null }) => ({
+          create: items.map(({ variantId, quantity, unitPrice, totalPrice }) => ({
             variantId,
             quantity,
             unitPrice,
             totalPrice,
-            gstRate,
-            hsnCode,
           })),
         },
       },

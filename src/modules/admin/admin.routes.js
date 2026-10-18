@@ -8,9 +8,8 @@ import * as discountsController from '../discounts/discounts.controller.js';
 import * as rfqController from '../rfq/rfq.controller.js';
 import * as reviewsController from '../reviews/reviews.controller.js';
 import * as returnsController from '../returns/returns.controller.js';
-import * as shippingController from '../shipping/shipping.controller.js';
 import * as notificationsController from '../notifications/notifications.controller.js';
-import * as settingsController from '../settings/settings.controller.js';
+import * as walletController from '../wallet/wallet.controller.js';
 import { authenticate, loadUser, authorize, requirePermission } from '../../common/middlewares/auth.js';
 import { validate } from '../../common/middlewares/validate.js';
 import { imageUpload } from '../../common/middlewares/upload.js';
@@ -47,10 +46,9 @@ import {
   rejectReturnSchema,
   completeReturnSchema,
 } from '../returns/returns.validation.js';
-import { listRefundsQuerySchema, manualRefundSchema } from '../payments/payments.validation.js';
+import { manualRefundSchema } from '../payments/payments.validation.js';
+import { listWalletRefundsQuerySchema } from '../wallet/wallet.validation.js';
 import { campaignSchema } from '../notifications/notifications.validation.js';
-import { shippingRulesSchema } from '../settings/settings.validation.js';
-import { serviceabilityQuerySchema } from '../shipping/shipping.validation.js';
 import { cancelOrderSchema } from '../orders/orders.validation.js';
 import { createVendorSchema, updateVendorSchema } from '../vendors/vendors.validation.js';
 
@@ -72,10 +70,10 @@ router.use('/products', (req, res, next) => {
 router.use('/stats', catalogOrInventory);
 router.use(['/uploads', '/categories', '/brands', '/banners', '/reviews'], catalog);
 router.use('/inventory', inventory);
-router.use(['/orders', '/rfq', '/returns', '/shipments'], requirePermission('orders'));
+router.use(['/orders', '/rfq', '/returns'], requirePermission('orders'));
 router.use(['/payments', '/refunds'], requirePermission('payments'));
 router.use('/vendors', requirePermission('vendors'));
-router.use(['/staff', '/customers', '/coupons', '/notifications', '/settings'], authorize('ADMIN'));
+router.use(['/staff', '/customers', '/coupons', '/notifications'], authorize('ADMIN'));
 
 /**
  * @openapi
@@ -211,8 +209,6 @@ router.get('/orders/:id', ordersController.getForAdmin);
 router.patch('/orders/:id/status', validate(orderStatusSchema), ordersController.updateStatusForAdmin);
 router.post('/orders/:id/cancel', validate(cancelOrderSchema), ordersController.cancelForAdmin);
 router.get('/orders/:id/invoice', ordersController.getInvoiceForAdmin);
-router.post('/orders/:id/shipment', shippingController.bookForAdmin);
-router.post('/orders/:id/rto-received', returnsController.receiveRto);
 
 /**
  * @openapi
@@ -229,7 +225,7 @@ router.post('/orders/:id/rto-received', returnsController.receiveRto);
  *       200: { description: "{ items, page, limit, total, summary }" }
  */
 router.get('/payments', validate(listPaymentsQuerySchema), paymentsController.listForAdmin);
-router.get('/refunds', validate(listRefundsQuerySchema), paymentsController.listRefundsForAdmin);
+router.get('/refunds', validate(listWalletRefundsQuerySchema), walletController.listRefundsForAdmin);
 router.post('/refunds', validate(manualRefundSchema), paymentsController.refundForAdmin);
 
 /**
@@ -429,59 +425,33 @@ router.patch('/reviews/:id', validate(reviewStatusSchema), reviewsController.set
  * /admin/returns/{id}/complete:
  *   post:
  *     tags: [Admin]
- *     summary: Goods received — restock (default) and refund (pro-rata unless `refundAmount` is given)
+ *     summary: Goods received — restock (default) and credit the wallet (pro-rata unless `refundAmount` is given)
  *     description: >
- *       The order becomes RETURNED once every unit on it is back. COD refunds are
- *       recorded as `manual` — pay them back outside the gateway.
+ *       The order becomes RETURNED once every unit on it is back. The refund is
+ *       credited to the customer's wallet (COD orders too).
  *     security: [{ bearerAuth: [] }]
  *     responses:
  *       200: { description: Return request, with refundStatus }
- * /admin/shipments:
- *   get:
- *     tags: [Admin]
- *     summary: Shipping issues — RTO/failed parcels, and paid orders whose courier booking failed
- *     security: [{ bearerAuth: [] }]
- *     responses:
- *       200: { description: "{ shipments, unbooked }" }
- * /admin/orders/{id}/shipment:
- *   post:
- *     tags: [Admin]
- *     summary: Retry booking the Shiprocket shipment for a paid order
- *     security: [{ bearerAuth: [] }]
- *     responses:
- *       200: { description: Shipment }
- *       502: { description: Shiprocket rejected it — message says why }
- * /admin/orders/{id}/rto-received:
- *   post:
- *     tags: [Admin]
- *     summary: Undelivered parcel is back — order RETURNED, stock restored, online payment refunded
- *     security: [{ bearerAuth: [] }]
- *     responses:
- *       200: { description: "{ orderId, status, refundStatus }" }
- *       409: { description: Courier hasn't reported RTO/failure, or order not in transit }
  * /admin/refunds:
  *   get:
  *     tags: [Admin]
- *     summary: Every refund with its order and gateway status, plus per-status totals
+ *     summary: Every refund credited to a customer wallet, with the total for the filtered set
  *     security: [{ bearerAuth: [] }]
  *     responses:
- *       200: { description: "{ items, page, limit, total, summary }" }
+ *       200: { description: "{ items, page, limit, total, summary: { credited } }" }
  *   post:
  *     tags: [Admin]
- *     summary: Manual refund of an order's online payment — full (default) or partial
+ *     summary: Manual refund to the customer's wallet — full (default) or partial, capped at what's left
  *     security: [{ bearerAuth: [] }]
  *     responses:
- *       201: { description: "{ status, amount }" }
- *       409: { description: No captured payment, or already fully refunded }
- *       502: { description: Gateway rejected it — message says why }
+ *       201: { description: "{ status: credited, amount }" }
+ *       409: { description: Order unpaid, or already refunded in full }
  */
 router.get('/returns', validate(listReturnsQuerySchema), returnsController.listForAdmin);
 router.get('/returns/:id', returnsController.getForAdmin);
 router.post('/returns/:id/approve', validate(approveReturnSchema), returnsController.approve);
 router.post('/returns/:id/reject', validate(rejectReturnSchema), returnsController.reject);
 router.post('/returns/:id/complete', validate(completeReturnSchema), returnsController.complete);
-router.get('/shipments', shippingController.listIssuesForAdmin);
-router.get('/shipments/rates', validate(serviceabilityQuerySchema), shippingController.courierRatesForAdmin);
 
 /**
  * @openapi
@@ -501,31 +471,5 @@ router.get('/shipments/rates', validate(serviceabilityQuerySchema), shippingCont
  */
 router.get('/notifications/campaigns', notificationsController.listCampaigns);
 router.post('/notifications/campaigns', validate(campaignSchema), notificationsController.sendCampaign);
-
-/**
- * @openapi
- * /admin/shipments/rates:
- *   get:
- *     tags: [Admin]
- *     summary: What each courier would charge to ship a parcel to a pincode, cheapest first
- *     security: [{ bearerAuth: [] }]
- *     responses:
- *       200: { description: Couriers with rate, ETA and COD support }
- * /admin/settings/shipping:
- *   get:
- *     tags: [Admin]
- *     summary: Delivery fee rules — free-shipping value and weight slabs (ADMIN only)
- *     security: [{ bearerAuth: [] }]
- *     responses:
- *       200: { description: "{ freeShippingAbove, shippingSlabs, updatedAt }" }
- *   put:
- *     tags: [Admin]
- *     summary: Replace the delivery fee rules — applies to orders placed from now on
- *     security: [{ bearerAuth: [] }]
- *     responses:
- *       200: { description: Saved rules }
- */
-router.get('/settings/shipping', settingsController.getShippingRules);
-router.put('/settings/shipping', validate(shippingRulesSchema), settingsController.updateShippingRules);
 
 export default router;

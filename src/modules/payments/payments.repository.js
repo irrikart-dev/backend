@@ -73,26 +73,6 @@ export default {
     return prisma.refund.update({ where: { id }, data: { status } });
   },
 
-  listRefundsForAdmin(where, { skip, take }) {
-    return prisma.refund.findMany({
-      where,
-      include: {
-        payment: { select: { providerPaymentId: true } },
-        order: { select: { id: true, orderNumber: true, user: { select: { name: true, phone: true, email: true } } } },
-      },
-      orderBy: { createdAt: 'desc' },
-      skip,
-      take,
-    });
-  },
-
-  countRefundsForAdmin(where) {
-    return prisma.refund.count({ where });
-  },
-
-  summariseRefundsForAdmin(where) {
-    return prisma.refund.groupBy({ by: ['status'], where, _sum: { amount: true }, _count: true });
-  },
 
   // ---- admin reconciliation ----
 
@@ -109,6 +89,7 @@ export default {
             platformAmount: true,
             vendor: { select: { storeName: true } },
             user: { select: { name: true, phone: true, email: true } },
+            walletTransactions: { where: { type: 'REFUND' }, select: { amount: true } },
           },
         },
         refunds: { select: { amount: true, status: true } },
@@ -124,11 +105,18 @@ export default {
   },
 
   async summaryForAdmin(where) {
-    const [byStatus, refunded, transferFailed] = await Promise.all([
+    const [byStatus, refunded, credited, transferFailed] = await Promise.all([
       prisma.payment.groupBy({ by: ['status'], where, _sum: { amount: true }, _count: true }),
       prisma.refund.aggregate({ where: { payment: where, status: { not: 'failed' } }, _sum: { amount: true } }),
-      prisma.payment.count({ where: { AND: [where, { status: 'CAPTURED', transferStatus: 'failed' }] } }),
+      // refunds now go to the wallet; online orders have one payment, so this doesn't double-count
+      prisma.walletTransaction.aggregate({
+        where: { type: 'REFUND', order: { paymentMethod: 'ONLINE', payments: { some: where } } },
+        _sum: { amount: true },
+      }),
+      prisma.payment.count({
+        where: { AND: [where, { status: 'CAPTURED', transferStatus: { in: ['failed', 'reversal_failed'] } }] },
+      }),
     ]);
-    return { byStatus, refunded: refunded._sum.amount, transferFailed };
+    return { byStatus, refunded: Number(refunded._sum.amount ?? 0) + Number(credited._sum.amount ?? 0), transferFailed };
   },
 };

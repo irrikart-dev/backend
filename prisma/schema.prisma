@@ -45,23 +45,27 @@ model User {
   status             UserStatus @default(ACTIVE)
   // Razorpay customer, created lazily at first online checkout — what saved cards/UPI hang off
   razorpayCustomerId String?    @unique
+  // store credit in rupees — every refund lands here, see src/modules/wallet. Kept in
+  // step with the WalletTransaction ledger, which is the audit trail.
+  walletBalance      Decimal    @default(0) @db.Decimal(10, 2)
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
 
-  addresses       Address[]
-  deviceTokens    DeviceToken[]
-  carts           Cart[]
-  orders          Order[]
-  wishlist        WishlistItem[]
-  recentlyViewed  RecentlyViewed[]
-  reviews         Review[]
-  rfqRequests     RfqRequest[]
-  returnRequests  ReturnRequest[]
-  notifications   Notification[]
-  couponUsages    CouponUsage[]
+  addresses          Address[]
+  deviceTokens       DeviceToken[]
+  carts              Cart[]
+  orders             Order[]
+  wishlist           WishlistItem[]
+  recentlyViewed     RecentlyViewed[]
+  reviews            Review[]
+  rfqRequests        RfqRequest[]
+  returnRequests     ReturnRequest[]
+  walletTransactions WalletTransaction[]
+  notifications      Notification[]
+  couponUsages       CouponUsage[]
   // coupons issued to this customer alone
-  personalCoupons Coupon[]
-  vendor          Vendor?
+  personalCoupons    Coupon[]
+  vendor             Vendor?
 
   // every list of a user's own rows filters by userId then sorts by time —
   // covered case-by-case on the child tables (orders, notifications, etc).
@@ -125,8 +129,6 @@ model Vendor {
   status            VendorStatus @default(ACTIVE)
   commissionPercent Decimal      @default(10) @db.Decimal(5, 2)
   legalBusinessName String?
-  // printed on the vendor's tax invoices
-  gstin             String?
   contactEmail      String?
   contactPhone      String?
   razorpayAccountId String?      @unique
@@ -217,10 +219,6 @@ model Product {
   status      ProductStatus @default(PUBLISHED)
   // YouTube URL for the PDP media viewer's demo-video slot — optional, admin-set
   videoUrl    String?
-  // prices are GST-inclusive; the rate (e.g. 5, 12, 18) splits the tax out on the
-  // order summary and invoice. Null = not set yet, no tax line shown.
-  gstRate     Decimal?      @db.Decimal(5, 2)
-  hsnCode     String?
   source      String        @default("admin") // seed | admin
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
@@ -406,8 +404,6 @@ model Order {
   status         OrderStatus   @default(PLACED)
   paymentMethod  PaymentMethod @default(ONLINE)
   totalAmount    Decimal       @db.Decimal(10, 2)
-  // delivery fee charged at checkout (part of totalAmount) — the platform's, not the vendor's
-  shippingAmount Decimal       @default(0) @db.Decimal(10, 2)
   vendorAmount   Decimal       @db.Decimal(10, 2)
   platformAmount Decimal       @db.Decimal(10, 2)
   // vendor has seen and taken the order — gates pack/ship, see orders.service.js
@@ -419,12 +415,13 @@ model Order {
   cancelReason   String?
   createdAt      DateTime      @default(now())
 
-  items        OrderItem[]
-  payments     Payment[]
-  refunds      Refund[]
-  shipment     Shipment?
-  couponUsages CouponUsage[]
-  returns      ReturnRequest[]
+  items              OrderItem[]
+  payments           Payment[]
+  refunds            Refund[]
+  shipment           Shipment?
+  couponUsages       CouponUsage[]
+  returns            ReturnRequest[]
+  walletTransactions WalletTransaction[]
 
   // order history screen: this user's orders, newest first
   @@index([userId, createdAt])
@@ -443,9 +440,6 @@ model OrderItem {
   quantity   Int
   unitPrice  Decimal        @db.Decimal(10, 2)
   totalPrice Decimal        @db.Decimal(10, 2)
-  // the product's GST rate and HSN at checkout, so a later catalogue edit never changes an issued invoice
-  gstRate    Decimal?       @db.Decimal(5, 2)
-  hsnCode    String?
 
   review      Review?
   returnItems ReturnItem[]
@@ -753,16 +747,29 @@ model NotificationCampaign {
 }
 
 // ============================================================
-// settings — src/modules/settings
+// wallet — src/modules/wallet
 // ============================================================
 
-// single row (id "default"), edited from the admin Settings page
-model StoreSettings {
-  id                String   @id @default("default")
-  // order value (after coupon) at or above which delivery is free; null = never free
-  freeShippingAbove Decimal? @db.Decimal(10, 2)
-  // delivery fee by parcel weight, [{ upToKg, fee }] ascending — the first slab the
-  // parcel fits in applies, heavier than every slab uses the last. Empty = free delivery.
-  shippingSlabs     Json     @default("[]")
-  updatedAt         DateTime @updatedAt
+// one row per balance change. amount is signed: + credit, − debit.
+model WalletTransaction {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  amount       Decimal  @db.Decimal(10, 2)
+  // balance right after this change — lets the history screen show a running balance
+  balanceAfter Decimal  @db.Decimal(10, 2)
+  type         String // REFUND (order money given back) | ADJUSTMENT (staff correction)
+  reason       String
+  orderId      String?
+  order        Order?   @relation(fields: [orderId], references: [id])
+  // staff member behind a manual credit/adjustment; null for automatic refunds
+  createdById  String?
+  createdAt    DateTime @default(now())
+
+  // wallet history screen: one user's changes, newest first
+  @@index([userId, createdAt])
+  // "how much of this order has been given back already"
+  @@index([orderId])
+  // admin refunds view, newest first
+  @@index([type, createdAt])
 }

@@ -13,7 +13,6 @@ import * as shipping from '../shipping/shipping.service.js';
 import * as vendorsService from '../vendors/vendors.service.js';
 import * as returns from '../returns/returns.service.js';
 import * as notifications from '../notifications/notifications.service.js';
-import * as settings from '../settings/settings.service.js';
 import logger from '../../common/utils/logger.js';
 import { BadRequestError, ConflictError, NotFoundError } from '../../common/errors/AppError.js';
 
@@ -43,7 +42,37 @@ export async function checkout(user, { couponCode, addressId, paymentMethod = 'O
   const vendor = await vendorsService.getVendorById(cart.vendorId);
   if (!vendor || vendor.status !== 'ACTIVE') throw new BadRequestError('This seller is no longer available');
 
-  const { lineItems, coupon, goodsTotal, shipping, totalAmount } = await priceCart(userId, cart, couponCode);
+  // re-validate against current stock/price — the cart's own include already joins the
+  // live variant row, so this is the same read, not a second query
+  const lineItems = [];
+
+  for (const item of cart.items) {
+    const { variant } = item;
+    if (!isProductSellable(variant.product, variant.product.vendor)) {
+      throw new ConflictError(`${variant.product.title} is no longer available — remove it from your cart`);
+    }
+    if (item.quantity > available(variant)) {
+      throw new ConflictError(`Only ${available(variant)} of ${variant.sku} available`);
+    }
+    const unitPrice = Number(variant.price);
+    lineItems.push({
+      variantId: variant.id,
+      quantity: item.quantity,
+      unitPrice,
+      totalPrice: unitPrice * item.quantity,
+    });
+  }
+
+  const subtotal = lineItems.reduce((sum, item) => sum + item.totalPrice, 0);
+
+  let coupon = null;
+  let discount = 0;
+  if (couponCode) {
+    coupon = await discounts.validateCoupon(couponCode, { userId, cartSubtotal: subtotal });
+    discount = discounts.calculateDiscount(coupon, subtotal);
+  }
+
+  const totalAmount = Math.max(Math.round(subtotal - discount), 0);
   // Razorpay rejects sub-₹1 orders outright — without this guard a coupon
   // that fully (or near-fully) offsets the subtotal sends amount:0 straight
   // to the gateway, which throws in a way the SDK mishandles (see
@@ -58,10 +87,9 @@ export async function checkout(user, { couponCode, addressId, paymentMethod = 'O
   const orderNumber = generateOrderNumber();
 
   // split at the vendor's commission rate as of checkout time, so a later commission
-  // change never retroactively changes an already-placed order's numbers. Commission
-  // is on the goods; the delivery fee is the platform's (it pays the courier).
+  // change never retroactively changes an already-placed order's numbers
   const commissionPercent = Number(vendor.commissionPercent);
-  const vendorAmount = Math.round(goodsTotal * (1 - commissionPercent / 100));
+  const vendorAmount = Math.round(totalAmount * (1 - commissionPercent / 100));
   const platformAmount = totalAmount - vendorAmount;
 
   const orderFields = {
@@ -72,7 +100,6 @@ export async function checkout(user, { couponCode, addressId, paymentMethod = 'O
     addressId,
     paymentMethod,
     totalAmount,
-    shippingAmount: shipping,
     vendorAmount,
     platformAmount,
     items: lineItems,
@@ -109,104 +136,6 @@ export async function checkout(user, { couponCode, addressId, paymentMethod = 'O
   // confirms (payments.service.js captureOrder), so a failed/abandoned payment leaves the
   // cart exactly as the user left it, ready to retry checkout
   return paymentSheet(user, order, providerOrder.id);
-}
-
-/**
- * Re-validates the cart against live stock/price and prices it: lines (with the GST
- * rate snapshot), coupon, delivery fee. The cart's own include already joins the live
- * variant row, so this is the same read, not a second query.
- */
-async function priceCart(userId, cart, couponCode) {
-  const lineItems = [];
-  let weightKg = 0;
-  for (const item of cart.items) {
-    const { variant } = item;
-    if (!isProductSellable(variant.product, variant.product.vendor)) {
-      throw new ConflictError(`${variant.product.title} is no longer available — remove it from your cart`);
-    }
-    if (item.quantity > available(variant)) {
-      throw new ConflictError(`Only ${available(variant)} of ${variant.sku} available`);
-    }
-    const unitPrice = Number(variant.price);
-    lineItems.push({
-      variantId: variant.id,
-      quantity: item.quantity,
-      unitPrice,
-      totalPrice: unitPrice * item.quantity,
-      gstRate: variant.product.gstRate,
-      hsnCode: variant.product.hsnCode,
-    });
-    weightKg += variant.weightKg * item.quantity;
-  }
-
-  const subtotal = lineItems.reduce((sum, item) => sum + item.totalPrice, 0);
-
-  let coupon = null;
-  let discount = 0;
-  if (couponCode) {
-    coupon = await discounts.validateCoupon(couponCode, { userId, cartSubtotal: subtotal });
-    discount = discounts.calculateDiscount(coupon, subtotal);
-  }
-
-  const goodsTotal = Math.max(Math.round(subtotal - discount), 0);
-  const rules = await settings.getShippingRules();
-  const shipping = settings.shippingFee(rules, { weightKg, goodsTotal });
-  return {
-    lineItems,
-    subtotal,
-    coupon,
-    discount,
-    goodsTotal,
-    shipping,
-    totalAmount: goodsTotal + shipping,
-    freeShippingAbove: rules.shippingSlabs.length ? rules.freeShippingAbove : null,
-  };
-}
-
-/** Checkout summary for the app before it places the order — same maths checkout uses. */
-export async function quote(userId, { couponCode } = {}) {
-  const cart = await cartRepository.findActiveCartWithItems(userId);
-  if (!cart || cart.items.length === 0) throw new BadRequestError('Cart is empty');
-  const p = await priceCart(userId, cart, couponCode);
-  return {
-    subtotal: p.subtotal,
-    discount: p.discount,
-    shipping: p.shipping,
-    total: p.totalAmount,
-    // null when delivery is never free; the app can nudge "add ₹X for free delivery"
-    freeShippingAbove: p.freeShippingAbove,
-    couponCode: p.coupon?.code ?? null,
-    tax: taxBreakup(p.lineItems, p.goodsTotal),
-    currency: 'INR',
-  };
-}
-
-const round2 = (n) => Math.round(n * 100) / 100;
-
-/**
- * GST is included in every price; this splits it back out per rate. Each line's share
- * of a coupon discount comes off first, so the tax is on what was actually paid.
- * Lines whose product has no GST rate set are left out.
- * ponytail: no CGST/SGST vs IGST split and no tax on the delivery fee — add both
- * once the seller's state and a GST-registered shipping line are needed on invoices.
- */
-export function taxBreakup(items, goodsPaid) {
-  const subtotal = items.reduce((sum, i) => sum + Number(i.totalPrice), 0);
-  const byRate = new Map();
-  for (const i of items) {
-    if (i.gstRate == null || subtotal === 0) continue;
-    const rate = Number(i.gstRate);
-    const paid = (Number(i.totalPrice) / subtotal) * goodsPaid;
-    const tax = (paid * rate) / (100 + rate);
-    const row = byRate.get(rate) ?? { rate, taxable: 0, tax: 0 };
-    row.taxable += paid - tax;
-    row.tax += tax;
-    byRate.set(rate, row);
-  }
-  const lines = [...byRate.values()]
-    .sort((a, b) => a.rate - b.rate)
-    .map((r) => ({ rate: r.rate, taxable: round2(r.taxable), tax: round2(r.tax) }));
-  return { total: round2(lines.reduce((sum, l) => sum + l.tax, 0)), lines };
 }
 
 // everything the app needs to open (or reopen) the gateway's checkout sheet
@@ -315,7 +244,7 @@ async function cancel(order, { by, reason }) {
   if (count === 0) throw new ConflictError('This order was just updated — refresh and try again');
 
   const refund =
-    stockCommitted && order.paymentMethod === 'ONLINE' ? await payments.refundOrder(order.id, { reason }) : null;
+    stockCommitted && order.paymentMethod === 'ONLINE' ? await payments.refundOrderToWallet(order.id, { reason }) : null;
   await notifications.notifyOrderEvent(order.id, 'ORDER_CANCELLED', { refund });
   return { refundStatus: refund?.status ?? null };
 }
@@ -451,8 +380,6 @@ function toOrderItemDto(item) {
     quantity: item.quantity,
     unitPrice: Number(item.unitPrice),
     totalPrice: Number(item.totalPrice),
-    gstRate: item.gstRate == null ? null : Number(item.gstRate),
-    hsnCode: item.hsnCode ?? null,
   };
 }
 
@@ -492,16 +419,11 @@ function withSplit(order, dto) {
 function toOrderDto(order) {
   const items = order.items.map(toOrderItemDto);
   const subtotal = items.reduce((sum, i) => sum + i.totalPrice, 0);
-  const shipping = Number(order.shippingAmount ?? 0);
-  const goodsPaid = Number(order.totalAmount) - shipping;
   return {
     ...toOrderSummaryDto(order),
     subtotal,
     // not stored separately — whatever the coupon took off the line totals
-    discount: Math.max(subtotal - goodsPaid, 0),
-    shipping,
-    // GST included in the price, split out by rate
-    tax: taxBreakup(items, goodsPaid),
+    discount: Math.max(subtotal - Number(order.totalAmount), 0),
     acceptedAt: order.acceptedAt,
     cancelledAt: order.cancelledAt,
     cancelledBy: order.cancelledBy,
@@ -511,13 +433,17 @@ function toOrderDto(order) {
     returnableUntil: returns.returnableUntil(order),
     items,
     address: toOrderAddressDto(order.address),
-    // money given back so far — cancellation, return or manual refund
-    refunds: (order.refunds ?? []).map((r) => ({
-      amount: Number(r.amount),
-      status: r.status,
-      reason: r.reason,
-      createdAt: r.createdAt,
-    })),
+    // money given back so far — cancellation, return or manual refund. Wallet credits
+    // (status "credited"), plus any card/UPI refund from before refunds moved to the wallet.
+    refunds: [
+      ...(order.refunds ?? []).map((r) => ({ amount: Number(r.amount), status: r.status, reason: r.reason, createdAt: r.createdAt })),
+      ...(order.walletTransactions ?? []).map((t) => ({
+        amount: Number(t.amount),
+        status: 'credited',
+        reason: t.reason,
+        createdAt: t.createdAt,
+      })),
+    ].sort((a, b) => a.createdAt - b.createdAt),
   };
 }
 
@@ -588,10 +514,16 @@ export async function listOrdersForAdmin({ page, limit, ...filter }) {
 export async function getOrderForAdmin(orderId) {
   const order = await repository.findByIdForAdmin(orderId);
   if (!order) throw new NotFoundError('Order not found');
-  const [shipment, returnRequests] = await Promise.all([shipping.getForOrder(orderId), returns.listForOrder(orderId)]);
+  const [shipment, returnRequests, refundable] = await Promise.all([
+    shipping.getForOrder(orderId),
+    returns.listForOrder(orderId),
+    payments.refundableFor(orderId),
+  ]);
   return {
     ...withSplit(order, toOrderDto(order)),
     returns: returnRequests,
+    // what staff can still credit back to the customer's wallet
+    refundable,
     customer: { id: order.user.id, name: customerName(order.user), phone: order.user.phone, email: order.user.email },
     vendor: order.vendor,
     payments: order.payments.map((p) => ({

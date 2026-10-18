@@ -30,11 +30,9 @@ Messages in the error tables are the exact strings the server sends. The app may
 | | Hidden products and unpayable sellers can't be carted or checked out. Cart lines carry `purchasable`. |
 | | Malformed JSON bodies return `400 Malformed JSON body` (was 500). |
 | 2026-10-19 | **Returns:** `POST /returns/photos`, `POST /returns`, `GET /returns`. Order detail adds `deliveredAt`, `returnableUntil`, `returns[]` and `refunds[]`. |
+| | **Wallet:** every refund (cancellation, return, staff refund, payment that arrived after cancellation) is credited to the user's IrriKart wallet, not the card/UPI. `GET /wallet`. Cancel responses return `refundStatus: "credited"`. |
 | | **Notifications:** `POST`/`DELETE /notifications/devices` for FCM tokens, `GET /notifications`, `POST /notifications/:id/read`, `POST /notifications/read-all`. Order, return and refund updates arrive as pushes. |
-| | **Checkout summary:** `POST /orders/quote` prices the cart (coupon, delivery fee, GST) before ordering. Orders can now carry a **delivery fee**, which is included in `amount`. |
-| | Order detail adds `shipping` and `tax`. `discount` is now `subtotal + shipping − amount`. Items add `gstRate` and `hsnCode`. Products add `gstRate` and `hsnCode`. |
 | | **Coupons:** `GET /discounts/offers`. New checkout error `400 This coupon is only for your first order`. A coupon issued to another customer returns `404 Coupon not found`. |
-| | **Shipping:** `GET /shipping/serviceability` (public pincode check with ETA). Courier updates now move the order to `SHIPPED` / `DELIVERED`. |
 
 ---
 
@@ -701,7 +699,6 @@ All order endpoints need auth.
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/orders/quote` | Price the cart for the checkout screen, without ordering |
 | POST | `/orders/checkout` | Place an order from the cart (ONLINE or COD) |
 | GET | `/orders` | Order history (latest 50, newest first) |
 | GET | `/orders/:id` | Order detail |
@@ -709,37 +706,6 @@ All order endpoints need auth.
 | POST | `/orders/:id/cancel` | Cancel |
 | POST | `/orders/:id/reorder` | Put a past order's items back in the cart |
 | GET | `/orders/:id/invoice` | Invoice PDF |
-
-### POST /orders/quote
-
-Prices the caller's cart with the same maths checkout uses, and places nothing. Call it when the checkout screen opens and again whenever the coupon changes.
-
-Body: `{ "couponCode": "monsoon10" }`. `couponCode` is optional.
-
-```json
-{
-  "success": true,
-  "data": {
-    "subtotal": 9998,
-    "discount": 1000,
-    "shipping": 90,
-    "total": 9088,
-    "freeShippingAbove": 10000,
-    "couponCode": "MONSOON10",
-    "tax": { "total": 1372.58, "lines": [{ "rate": 18, "taxable": 7625.42, "tax": 1372.58 }] },
-    "currency": "INR"
-  }
-}
-```
-
-| Field | Notes |
-|---|---|
-| `total` | `subtotal − discount + shipping`. This is what checkout will charge |
-| `shipping` | Delivery fee. 0 when delivery is free |
-| `freeShippingAbove` | Order value (after the coupon) from which delivery is free. `null` = never free, or delivery is always free. Use it for "Add ₹X more for free delivery" |
-| `tax` | GST already **included** in the prices, split out by rate. Show it as "Incl. GST ₹…". Products without a GST rate are left out. Values have up to 2 decimals |
-
-Errors: 400 `Cart is empty`, plus the same coupon and stock errors as checkout (see Coupons). On a coupon error, show it next to the coupon field and quote again without the code.
 
 ### POST /orders/checkout
 
@@ -846,7 +812,7 @@ Errors:
 | `PACKED` | Seller packed it | "Packed". No cancel |
 | `SHIPPED` | Handed to the courier | "Shipped". Show the shipment (AWB/events) if present |
 | `DELIVERED` | Delivered (currently set by IrriKart admin) | "Delivered". Offer reviews |
-| `CANCELLED` | Cancelled. `cancelledBy` is `customer` / `vendor` (seller rejected) / `admin` / `system` (payment not completed in time). `cancelReason` holds the text | "Cancelled" plus reason. Mention a refund if it was paid online |
+| `CANCELLED` | Cancelled. `cancelledBy` is `customer` / `vendor` (seller rejected) / `admin` / `system` (payment not completed in time). `cancelReason` holds the text | "Cancelled" plus reason. Mention the wallet credit if it was paid online |
 | `RETURNED` | In the enum, but nothing sets it today | Render generically |
 
 `paymentStatus` (latest gateway attempt, online orders only): `CREATED` (attempt open), `CAPTURED` (paid), `FAILED`, or `null` for COD.
@@ -891,8 +857,6 @@ Returns at most the **latest 50 orders**, newest first. It is a plain array with
     "createdAt": "2026-10-16T09:42:11.512Z",
     "subtotal": 9998,
     "discount": 1000,
-    "shipping": 0,
-    "tax": { "total": 1372.58, "lines": [{ "rate": 18, "taxable": 7625.42, "tax": 1372.58 }] },
     "acceptedAt": "2026-10-16T10:05:00.000Z",
     "cancelledAt": null,
     "cancelledBy": null,
@@ -911,9 +875,7 @@ Returns at most the **latest 50 orders**, newest first. It is a plain array with
         "unit": "piece",
         "quantity": 2,
         "unitPrice": 4999,
-        "totalPrice": 9998,
-        "gstRate": 18,
-        "hsnCode": "8424"
+        "totalPrice": 9998
       }
     ],
     "address": {
@@ -943,14 +905,11 @@ Returns at most the **latest 50 orders**, newest first. It is a plain array with
 |---|---|
 | summary fields | As in `GET /orders` |
 | `subtotal` | Sum of line totals (prices frozen at checkout) |
-| `discount` | `subtotal + shipping − amount`, never negative. Not stored separately |
-| `shipping` | Delivery fee charged on this order (included in `amount`) |
-| `tax` | GST included in the prices, by rate. Same shape as in `POST /orders/quote` |
+| `discount` | `subtotal − amount`, never negative. Not stored separately |
 | `deliveredAt` | When the order reached `DELIVERED`. Null before |
 | `returnableUntil` | Last moment a return can be requested. Non-null only while `DELIVERED`. Show **Return items** while `now < returnableUntil` and no entry in `returns` is `REQUESTED` or `APPROVED` |
-| `refunds[]` | `{ amount, status, reason, createdAt }` for money sent back (cancellation, return, manual). `status`: `pending`, `processed` or `failed` |
+| `refunds[]` | `{ amount, status, reason, createdAt }`, oldest first, for money given back (cancellation, return, staff refund). `status` is `credited` (added to the wallet). Orders from before the wallet may also show card/UPI refunds with `pending`, `processed` or `failed` |
 | `returns[]` | Return requests on this order, newest first. Shape as in **Returns** |
-| `items[].gstRate`, `hsnCode` | GST % and HSN code at checkout. Either may be null |
 | `acceptedAt` | When the seller accepted. Null before |
 | `cancelledAt`, `cancelledBy`, `cancelReason` | Set when cancelled |
 | `items[].id` | **Order item id**. Use it as `orderItemId` when posting a review |
@@ -988,12 +947,12 @@ When cancelling is allowed:
 - `CONFIRMED`: only within `ORDER_CANCEL_WINDOW_HOURS` (default **24 h**) of `createdAt`. This holds even after the seller has accepted.
 - Any other status: never.
 
-Effects: held or sold stock goes back on sale, a coupon use is given back, and a **paid online** order is refunded in full to the original payment method. Unpaid and COD orders get no refund.
+Effects: held or sold stock goes back on sale, a coupon use is given back, and a **paid online** order is refunded in full **to the user's IrriKart wallet** (see Wallet). Unpaid and COD orders get no refund.
 
 Response 200: the full order detail (as in `GET /orders/:id`, status `CANCELLED`) **plus** `refundStatus`:
 
 ```json
-{ "success": true, "data": { "id": "cm2ord0001user0000000001", "status": "CANCELLED", "cancelledBy": "customer", "cancelReason": "Ordered the wrong size", "refundStatus": "processed" } }
+{ "success": true, "data": { "id": "cm2ord0001user0000000001", "status": "CANCELLED", "cancelledBy": "customer", "cancelReason": "Ordered the wrong size", "refundStatus": "credited" } }
 ```
 
 (The response is abbreviated here.)
@@ -1001,8 +960,7 @@ Response 200: the full order detail (as in `GET /orders/:id`, status `CANCELLED`
 | `refundStatus` | Meaning / UI |
 |---|---|
 | `null` | No refund needed (unpaid, or COD) |
-| `pending` / `processed` | Refund created at Razorpay. Show "Refund initiated. It reaches your account in 5 to 7 working days" |
-| `failed` | Razorpay refund call failed. The order is still cancelled and IrriKart staff will follow up. Show "Refund will be processed by our team" |
+| `credited` | The amount paid was added to the wallet. Show "₹… added to your IrriKart wallet" |
 
 | Status | Message | When |
 |---|---|---|
@@ -1088,7 +1046,7 @@ Response 200:
 | `CONFIRMED` | Paid. The cart has been converted | Show success. Refresh the cart badge (now empty) |
 | `PLACED` | Razorpay hasn't settled the payment yet (authorized, not captured) | Show "Confirming payment…" and **poll** `GET /orders/:id` |
 | `PAYMENT_FAILED` | Razorpay reports the payment failed | Show failure with Retry / Cancel |
-| `CANCELLED` | Payment landed after the order was cancelled or expired. The server refunds it automatically | "Order was cancelled; your payment will be refunded" |
+| `CANCELLED` | Payment landed after the order was cancelled or expired. The server credits it to the wallet automatically | "Order was cancelled; your payment was added to your IrriKart wallet" |
 
 **Polling advice:** after `PLACED`, poll `GET /orders/:id` every 3 s for up to about 60 s, until `status` is no longer `PLACED`. If it is still `PLACED` after that, stop and show "Payment is being confirmed. We'll update your order", and refresh when the user next opens Orders. The webhook settles it in the background.
 
@@ -1126,7 +1084,7 @@ Response **204**. Errors: 404 `Saved method not found`.
 
 ## 7. Coupons
 
-- Apply a coupon with `couponCode` on `POST /orders/checkout`. Preview it first with `POST /orders/quote` (same body field), which returns the discount or the same error checkout would.
+- Coupons are **entered at checkout only**, as `couponCode` on `POST /orders/checkout`. **There is no endpoint to validate a coupon or preview the discount beforehand.** The discount first appears on the created order (`discount` on `GET /orders/:id`). For ONLINE, the payable `amount` in the checkout response already includes it.
 - `GET /discounts/offers` (auth) lists coupons the user can apply right now, for an offers screen or a "View offers" sheet next to the coupon field. It contains the coupons staff chose to show, plus any coupon issued to this user. It leaves out expired, used-up and first-order coupons the user no longer qualifies for.
 
 ```json
@@ -1275,36 +1233,16 @@ Staff can move a request to any status. Staff notes (`adminNote`) are **never** 
 
 ## 10. Shipping
 
-Customers see shipping in three places: the `shipment` field on `GET /orders/:id`, the delivery fee (`shipping` on the quote and the order), and the pincode check below.
+The customer-visible part of shipping is the `shipment` field on `GET /orders/:id`. There is no separate customer shipping endpoint.
 
 - After an order is confirmed (COD at checkout, online once payment is captured), the backend books a Shiprocket shipment **in the background**. If booking fails, `shipment` stays `null`, so the UI must handle `null` on any status.
 - Shape: `{ status, awbNumber, trackingEvents[] }`.
   - `status`: `CREATED`, `IN_TRANSIT`, `DELIVERED`, `RTO` (returned to origin) or `FAILED` (cancelled or undelivered).
   - `awbNumber`: string or null. Null if the AWB isn't assigned yet.
   - `trackingEvents[]`: `{ status, description, occurredAt }`, oldest first. `status` is Shiprocket's raw uppercase string (e.g. `PICKED UP`, `IN TRANSIT`, `OUT FOR DELIVERY`, `DELIVERED`). `description` may be null.
-- No courier name or tracking URL is exposed.
-- Courier updates move the order forward. `IN_TRANSIT` moves a confirmed or packed order to `SHIPPED`, and `DELIVERED` moves it to `DELIVERED`. The customer gets a push for each.
-- **Delivery fee.** Staff set it by cart weight, with an optional free-delivery threshold. When no rules are set, delivery is free (`shipping: 0`). Read the fee from `POST /orders/quote`. Don't compute it in the app.
-
-### GET /shipping/serviceability
-
-Public (no auth). Use it for the pincode check on the PDP and cart.
-
-Query: `pincode` (6 digits, required), `weightKg` (the cart's total weight, default 0.5), `cod` (`true`/`false`, default `false`).
-
-```json
-{ "success": true, "data": { "pincode": "413102", "serviceable": true, "estimatedDays": 4, "estimatedDelivery": "Oct 23, 2026", "codAvailable": true } }
-```
-
-- `serviceable: false` means no courier delivers there. Show "We don't deliver to this pincode yet".
-- `estimatedDelivery` is the courier's own date string and may be null. Prefer "Delivery in about N days" from `estimatedDays`.
-- Answers are cached for a few hours.
-
-| Status | Message | When |
-|---|---|---|
-| 400 | `Validation failed` | Not a 6-digit pincode |
-| 502 | `Could not check delivery right now — please try again` | Courier lookup failed |
-| 503 | `Delivery checks are not set up yet` | Server not configured. Hide the pincode check |
+- No courier name, tracking URL or ETA is exposed.
+- The shipment `status` and the order `status` are independent. A shipment showing `DELIVERED` doesn't move the order to `DELIVERED` (staff do that, which also starts the return window).
+- No pincode serviceability check or shipping fee exists. Totals contain no delivery charge.
 
 ---
 
@@ -1358,7 +1296,7 @@ Statuses:
 |---|---|
 | `REQUESTED` | Waiting for staff |
 | `APPROVED` | Accepted. Staff arrange the pickup |
-| `COMPLETED` | Goods received. For a `RETURN`, `refundAmount` holds the refund: the items' share of what was paid, coupon included, delivery fee excluded. `refundStatus` is the gateway outcome, or `manual` for COD (paid back outside the app) |
+| `COMPLETED` | Goods received. For a `RETURN`, `refundAmount` is what was credited to the wallet: the items' share of what was paid, after any coupon. `refundStatus` is `credited`, or `none` when staff had already refunded the order in full |
 | `REJECTED` | Declined. `adminNote` says why |
 
 `adminNote` is a message from staff to the customer. Show it when it isn't null. Each status change also arrives as a push (see Notifications). Once every unit on an order has been returned, the order becomes `RETURNED`.
@@ -1408,7 +1346,7 @@ Order, return and refund updates, plus staff announcements, are stored in a noti
 }
 ```
 
-`type` values: `ORDER_CONFIRMED`, `ORDER_SHIPPED`, `ORDER_DELIVERED`, `ORDER_CANCELLED`, `ORDER_RETURNED` (undelivered parcel came back), `RETURN_APPROVED`, `RETURN_REJECTED`, `RETURN_COMPLETED`, `REFUND_PROCESSED`, `CAMPAIGN`.
+`type` values: `ORDER_CONFIRMED`, `ORDER_SHIPPED`, `ORDER_DELIVERED`, `ORDER_CANCELLED`, `RETURN_APPROVED`, `RETURN_REJECTED`, `RETURN_COMPLETED`, `REFUND_PROCESSED`, `CAMPAIGN`.
 
 The FCM message carries the same title and body as a `notification`. Its `data` has `type` plus the `data` fields above, all as strings. On tap:
 - `orderId` present: open that order.
@@ -1417,15 +1355,44 @@ The FCM message carries the same title and body as a `notification`. Its `data` 
 
 ---
 
-## 13. Not available yet
+## 13. Wallet
+
+Refunds are store credit. Every refund (cancelled paid order, completed return, staff refund, or a payment that arrived after the order was cancelled) is added to the user's wallet. None go back to the card or UPI.
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| GET | `/wallet` | yes | Balance and the latest 50 changes, newest first |
+
+```json
+{
+  "success": true,
+  "data": {
+    "balance": 5310,
+    "currency": "INR",
+    "transactions": [
+      { "id": "cm2wtx0001user0000000001", "amount": 810, "balanceAfter": 5310, "type": "REFUND", "reason": "Return: Dripper heads cracked", "order": { "id": "cm2ord0001user0000000001", "orderNumber": "ORD-20261016-A1B2C3" }, "createdAt": "2026-10-21T10:00:00.000Z" }
+    ]
+  }
+}
+```
+
+- `amount` is signed: positive for a credit, negative for a debit. `type` is `REFUND` (money given back on an order) or `ADJUSTMENT` (a staff correction). `order` is null when the change isn't tied to an order.
+- **The balance can't be spent yet.** Show it on the account screen ("IrriKart wallet ₹5,310"), with the history. Checkout doesn't take wallet money until the backend adds it (see Not available yet).
+
+---
+
+## 14. Not available yet
 
 Don't build UI that depends on these. Each was checked in the code:
 
 | Feature | State in backend |
 |---|---|
 | Quote prices on RFQs | No quoted-price field. Staff reply outside the app |
+| Shipping fee, pincode serviceability, delivery ETA | Not implemented |
 | Order tracking URL / courier name | Not exposed (only AWB + events) |
 | Customer-booked return pickup | Staff arrange pickups outside the app |
+| Paying with the wallet balance | Not yet. Refunds credit the wallet, but checkout doesn't spend it |
+| Refunds to the original card/UPI | Off by decision. Refunds go to the wallet |
 | Category tree | `parentId` is not exposed. Categories are a flat list |
 | Vendor storefront endpoint | None. Use `GET /catalog/products?vendor=<id>` plus `product.vendor` |
 | Pagination on orders, reviews, RFQs, wishlist | Not implemented. Orders are capped at 50 |
@@ -1433,7 +1400,7 @@ Don't build UI that depends on these. Each was checked in the code:
 
 ---
 
-## 14. Recommended app flows
+## 15. Recommended app flows
 
 ### A. Sign-in
 
@@ -1455,7 +1422,7 @@ Don't build UI that depends on these. Each was checked in the code:
    - 409 without details: stock message.
 5. Cart screen: `GET /cart`. Change quantity with `PATCH /cart/items/<itemId>`, remove with `DELETE /cart/items/<itemId>`.
 6. Address step: `GET /addresses`. Preselect `isDefault`. If the list is empty, show the add form (`POST /addresses`).
-7. Checkout screen: `POST /orders/quote` for the summary (subtotal, discount, delivery, total, "Incl. GST"). Add an optional coupon field ("View offers" → `GET /discounts/offers`) and re-quote on every change. Then offer `ONLINE` / `COD`. Hide or disable COD when the quote's `total > 5000` (server default; the server stays authoritative).
+7. Checkout screen: an optional coupon field ("View offers" → `GET /discounts/offers`), then `ONLINE` / `COD`. Hide or disable COD when `cart.total > 5000` (server default; the server stays authoritative).
 8. `POST /orders/checkout { addressId, couponCode?, paymentMethod: "ONLINE" }` → 201. Keep `orderId`.
 9. Open Razorpay as described in Payments, then continue with flow D.
 
@@ -1475,7 +1442,7 @@ Steps 1 to 7 as in B, then:
    - It becomes `CONFIRMED`: success.
    - It becomes `PAYMENT_FAILED`: failure screen (step 5).
    - It is still `PLACED` after 60 s: "We're confirming your payment" and send the user to Order detail.
-4. `CANCELLED`: "Order expired; refund on its way".
+4. `CANCELLED`: "Order expired; your payment was added to your IrriKart wallet".
 5. SDK error, or `PAYMENT_FAILED`: show **Retry** and **Cancel**.
    - Retry: `POST /orders/<orderId>/pay`, then reopen Razorpay with the new response.
    - Cancel: flow E.
@@ -1487,7 +1454,7 @@ Steps 1 to 7 as in B, then:
 1. Show **Cancel** when the status is `PLACED` or `PAYMENT_FAILED`, or when it is `CONFIRMED` and `now < createdAt + 24 h`.
 2. Ask for a reason (min 3 chars, max 500. Offer presets like "Ordered by mistake", plus free text).
 3. `POST /orders/<id>/cancel { reason }`.
-4. 200: update the order from the response. Show the refund copy based on `refundStatus` (null, pending/processed, failed).
+4. 200: update the order from the response. If `refundStatus == "credited"`, show "₹… added to your IrriKart wallet". Null means nothing was paid, so nothing to refund.
 5. 409: show the message and refetch `GET /orders/<id>` (the status probably moved on).
 
 ### F. Edit an address
@@ -1513,7 +1480,7 @@ Steps 1 to 7 as in B, then:
 2. Let the user pick lines and quantities, a type (return or replace), a reason (offer presets like "Damaged", "Wrong item" or "Not as described"), optional details, and up to 5 photos.
 3. Upload each photo with `POST /returns/photos` and collect the `url`s.
 4. `POST /returns { orderId, type, reason, details?, photoUrls, items }` → 201. Show "Return requested".
-5. Order detail shows `returns[0].status` and `adminNote`. After `COMPLETED`, show `refundAmount` (`refundStatus == "manual"`: "We'll pay you back directly").
+5. Order detail shows `returns[0].status` and `adminNote`. After `COMPLETED`, show "₹`refundAmount` added to your wallet".
 
 ### I. Push notifications
 
@@ -1525,7 +1492,7 @@ Steps 1 to 7 as in B, then:
 
 ---
 
-## 15. Open questions
+## 16. Open questions
 
 1. **Hosts.** The production and staging base URLs are not in the backend repo. The Swagger `servers` entry is localhost only. Who supplies them?
 2. **Validation error shape.** `details.fieldErrors` is keyed by `body` / `query` / `params`, not by field name, so the app can't highlight the failing field. Should `validate()` flatten `body`'s own errors (e.g. `{ name: [...], pincode: [...] }`)?
@@ -1533,7 +1500,7 @@ Steps 1 to 7 as in B, then:
 4. **Integer rupees.** Order totals are rounded to whole rupees, but product, variant and cart prices are `Decimal(10,2)` and the admin forms accept decimals (`z.number().nonnegative()`). Should prices be restricted to integers, or should the app handle paise-level prices?
 5. **Repeat checkout.** Each ONLINE checkout creates a new order, a new stock hold and a new coupon use, while the previous unpaid order still holds stock for 30 minutes. A user who backs out and taps "Place order" again can hit `You have already used this coupon` or false stock shortages. Should checkout reuse or cancel the caller's pending order?
 6. **Expiry is lazy.** Unpaid orders are auto-cancelled only when someone checks out (or an admin opens orders), not on a timer. An order can show `PLACED` well past 30 minutes, and `/pay` doesn't check expiry. Should the app treat `createdAt + 30 min` as expired in the UI, or will the backend add a scheduled sweep?
-7. ~~Order status vs shipment.~~ Resolved 2026-10-19: courier updates now move the order to `SHIPPED` / `DELIVERED`, and returns or an RTO set `RETURNED`.
+7. **Order status vs shipment.** Shiprocket webhooks update only the shipment. The order moves to `DELIVERED` only when staff set it (completed returns set `RETURNED`). Should a shipment `DELIVERED` advance the order?
 8. **Review eligibility signal.** Order items carry no `reviewed` flag, so the app learns about a duplicate only from the 409. Add `reviewId`/`reviewed` to order items?
 9. **Wishlist / recently viewed with a slug.** These endpoints accept a slug for the visibility check but then store it as a product id, which fails with a misleading 409. Should they resolve the slug to an id, or reject slugs explicitly?
 10. **Rate limit per IP.** 300 requests per 15 minutes per IP may be tight for users behind carrier NAT sharing one IP. The 429 body is plain text, not the JSON envelope.

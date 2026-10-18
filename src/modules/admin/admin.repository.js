@@ -56,6 +56,7 @@ export default {
       where: { id, role: 'CUSTOMER' },
       select: {
         ...customerSelect,
+        walletBalance: true,
         _count: { select: { orders: true } },
         // archived rows only exist for past orders — the order detail shows those
         addresses: { where: { archivedAt: null }, orderBy: { createdAt: 'desc' } },

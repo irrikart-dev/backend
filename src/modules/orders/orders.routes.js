@@ -2,7 +2,7 @@ import { Router } from 'express';
 import * as controller from './orders.controller.js';
 import { authenticate, loadUser } from '../../common/middlewares/auth.js';
 import { validate } from '../../common/middlewares/validate.js';
-import { cancelOrderSchema, checkoutSchema, quoteSchema } from './orders.validation.js';
+import { cancelOrderSchema, checkoutSchema } from './orders.validation.js';
 
 const router = Router();
 
@@ -35,24 +35,6 @@ router.use(authenticate, loadUser);
  *       404: { description: Coupon not found }
  *       409: { description: Insufficient stock, or coupon usage limit reached }
  */
-/**
- * @openapi
- * /orders/quote:
- *   post:
- *     tags: [Orders]
- *     summary: Price the caller's cart for the checkout screen — subtotal, coupon, delivery fee, GST
- *     description: >
- *       Same maths checkout uses, without placing anything. A bad coupon fails the same
- *       way it would at checkout. `freeShippingAbove` (null = never free) lets the app
- *       show "add ₹X more for free delivery". `tax` is the GST already included in the prices.
- *     security: [{ bearerAuth: [] }]
- *     responses:
- *       200: { description: "{ subtotal, discount, shipping, total, freeShippingAbove, couponCode, tax: { total, lines }, currency }" }
- *       400: { description: Cart is empty, or coupon not applicable }
- *       404: { description: Coupon not found }
- *       409: { description: An item went out of stock or off sale }
- */
-router.post('/quote', validate(quoteSchema), controller.quote);
 router.post('/checkout', validate(checkoutSchema), controller.checkout);
 
 /**

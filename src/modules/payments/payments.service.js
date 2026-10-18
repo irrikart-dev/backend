@@ -8,8 +8,9 @@ import * as inventory from '../inventory/inventory.service.js';
 import * as shipping from '../shipping/shipping.service.js';
 import * as vendorsService from '../vendors/vendors.service.js';
 import * as notifications from '../notifications/notifications.service.js';
+import * as wallet from '../wallet/wallet.service.js';
 import logger from '../../common/utils/logger.js';
-import { AppError, BadRequestError, ConflictError, NotFoundError } from '../../common/errors/AppError.js';
+import { BadRequestError, ConflictError, NotFoundError } from '../../common/errors/AppError.js';
 
 // rupees -> paise boundary — nowhere else in the app deals in paise
 export async function createPaymentOrder({ amount, receipt }) {
@@ -145,11 +146,8 @@ async function captureOrder(payment, entity) {
   });
 
   if (outcome === 'late') {
-    logger.warn({ orderId: payment.orderId, paymentId: entity.id }, 'payment captured on a cancelled order — refunding');
-    await refundPayment(
-      { ...payment, status: 'CAPTURED', providerPaymentId: entity.id },
-      { reason: 'Payment received after the order was cancelled' }
-    );
+    logger.warn({ orderId: payment.orderId, paymentId: entity.id }, 'payment captured on a cancelled order — crediting wallet');
+    await refundOrderToWallet(payment.orderId, { reason: 'Payment received after the order was cancelled' });
     return;
   }
   if (outcome !== 'captured') return;
@@ -195,6 +193,89 @@ async function failOrder(payment, entity) {
     await ordersRepository.markPaymentFailed(payment.orderId, tx);
   });
 }
+
+// ---- refunds: store credit in the customer's wallet ----
+
+const CASH_COLLECTED = ['DELIVERED', 'RETURNED'];
+
+// what the customer has actually paid on an order: the captured online payment, or the
+// cash a COD courier collected on delivery
+function paidOn(order) {
+  if (order.paymentMethod === 'COD') return CASH_COLLECTED.includes(order.status) ? Number(order.totalAmount) : 0;
+  return Number(order.payments[0]?.amount ?? 0);
+}
+
+// wallet credits plus any Razorpay refund made before refunds moved to the wallet
+async function givenBack(order, client) {
+  const legacy = (order.payments[0]?.refunds ?? []).filter((r) => r.status !== 'failed').reduce((sum, r) => sum + Number(r.amount), 0);
+  return (await wallet.creditedForOrder(order.id, client)) + legacy;
+}
+
+const loadForRefund = (orderId, client = prisma) =>
+  client.order.findUnique({
+    where: { id: orderId },
+    include: { payments: { where: { status: 'CAPTURED' }, include: { refunds: true }, take: 1 } },
+  });
+
+/** How much of an order can still be given back to the customer's wallet. */
+export async function refundableFor(orderId) {
+  const order = await loadForRefund(orderId);
+  if (!order) return 0;
+  return Math.max(paidOn(order) - (await givenBack(order)), 0);
+}
+
+/**
+ * Gives up to `amount` (default: everything not yet given back) of what the customer
+ * paid on an order back as wallet credit, and pulls the vendor's share of it back out
+ * of their Route transfer. Returns { status: 'credited' | 'none', amount }.
+ * Real refunds to the card/UPI (refundPayment) stay available for later.
+ */
+export async function refundOrderToWallet(orderId, { reason, amount, createdById = null } = {}) {
+  const { order, credited } = await prisma.$transaction(async (tx) => {
+    // row lock: two refunds of one order must not both see the same balance left
+    await tx.$queryRaw`SELECT id FROM "Order" WHERE id = ${orderId} FOR UPDATE`;
+    const row = await loadForRefund(orderId, tx);
+    const left = Math.max(paidOn(row) - (await givenBack(row, tx)), 0);
+    const value = Math.min(amount ?? left, left);
+    if (value > 0) {
+      await wallet.applyChange(tx, { userId: row.userId, amount: value, type: 'REFUND', reason, orderId, createdById });
+    }
+    return { order: row, credited: Math.max(value, 0) };
+  });
+  if (!credited) return { status: 'none', amount: 0 };
+  await reverseVendorShare(order, credited);
+  return { status: 'credited', amount: credited };
+}
+
+// The vendor was paid their share by Route transfer at capture; money credited back to
+// the customer comes out of it pro rata. A failure is left flagged on the payments
+// screen (transferStatus reversal_failed) for staff to settle with the vendor.
+// ponytail: no running total of what's been reversed — Razorpay itself refuses to
+// reverse more than was transferred, which surfaces here as reversal_failed.
+async function reverseVendorShare(order, credited) {
+  const payment = order.payments[0];
+  if (!payment?.transferId) return;
+  const sharePaise = Math.round((credited / Number(order.totalAmount)) * Number(order.vendorAmount) * 100);
+  if (sharePaise <= 0) return;
+  try {
+    await vendorsService.reverseTransfer(payment.transferId, sharePaise);
+    await repository.recordTransfer(payment.id, { transferId: payment.transferId, transferStatus: 'reversed' });
+  } catch (err) {
+    logger.error({ err, paymentId: payment.id, sharePaise }, 'vendor transfer reversal failed');
+    await repository.recordTransfer(payment.id, { transferId: payment.transferId, transferStatus: 'reversal_failed' });
+  }
+}
+
+/** Staff's manual credit against an order (full or partial), capped at what's left to give back. */
+export async function creditOrderByAdmin({ orderId, amount, reason }, staffId) {
+  const left = await refundableFor(orderId);
+  if (left <= 0) throw new ConflictError('Nothing left to refund on this order — it is unpaid or already refunded in full');
+  if (amount != null && amount > left) throw new BadRequestError(`Only ₹${left} is left to refund on this order`);
+  return refundOrderToWallet(orderId, { reason: `Manual refund: ${reason}`, amount: amount ?? left, createdById: staffId });
+}
+
+// ---- real refunds to the original payment method — not used yet (refunds go to the
+// wallet); kept for when cash refunds are switched back on ----
 
 /**
  * Refunds `amount` (default: the whole payment) of a captured payment. Never throws —
@@ -250,18 +331,6 @@ export async function refundOrder(orderId, { reason, amount } = {}) {
   const value = Math.min(amount ?? Infinity, refundable(payment));
   if (value <= 0) return { status: 'none', amount: 0 };
   return refundPayment(payment, { reason, amount: value });
-}
-
-/** Admin's manual refund (full or partial) — unlike refundOrder, a gateway failure is the caller's error. */
-export async function refundOrderByAdmin({ orderId, amount, reason }) {
-  const payment = await repository.findCapturedForOrder(orderId);
-  if (!payment) throw new ConflictError('This order has no captured online payment to refund');
-  const left = refundable(payment);
-  if (left <= 0) throw new ConflictError('This payment has already been refunded in full');
-  if (amount != null && amount > left) throw new BadRequestError(`Only ₹${left} is left to refund on this payment`);
-  const result = await refundPayment(payment, { reason: `Manual refund: ${reason}`, amount: amount ?? left });
-  if (result.status === 'failed') throw new AppError(`Refund failed: ${result.error}`, 502);
-  return result;
 }
 
 // Razorpay moves a refund pending → processed (or failed) after the API call returns.
@@ -383,7 +452,9 @@ export async function listPaymentsForAdmin({ page, limit, ...filter }) {
 
   return {
     items: rows.map((p) => {
-      const refunded = p.refunds.filter((r) => r.status !== 'failed').reduce((sum, r) => sum + Number(r.amount), 0);
+      const refunded =
+        p.refunds.filter((r) => r.status !== 'failed').reduce((sum, r) => sum + Number(r.amount), 0) +
+        p.order.walletTransactions.reduce((sum, t) => sum + Number(t.amount), 0);
       return {
         id: p.id,
         orderId: p.order.id,
@@ -404,7 +475,7 @@ export async function listPaymentsForAdmin({ page, limit, ...filter }) {
         // money in that isn't backed by a live order and hasn't gone back out
         needsAttention:
           (p.status === 'CAPTURED' && p.order.status === 'CANCELLED' && refunded < Number(p.amount)) ||
-          (p.status === 'CAPTURED' && p.transferStatus === 'failed'),
+          (p.status === 'CAPTURED' && ['failed', 'reversal_failed'].includes(p.transferStatus)),
         createdAt: p.createdAt,
       };
     }),
@@ -418,45 +489,5 @@ export async function listPaymentsForAdmin({ page, limit, ...filter }) {
       refunded: Number(summary.refunded ?? 0),
       transferFailed: summary.transferFailed,
     },
-  };
-}
-
-export async function listRefundsForAdmin({ status, search, from, to, page, limit }) {
-  const clauses = [];
-  if (status) clauses.push({ status });
-  if (from) clauses.push({ createdAt: { gte: from } });
-  if (to) clauses.push({ createdAt: { lte: to } });
-  if (search) {
-    clauses.push({
-      OR: [
-        { razorpayRefundId: { contains: search } },
-        { order: { orderNumber: { contains: search, mode: 'insensitive' } } },
-        { reason: { contains: search, mode: 'insensitive' } },
-      ],
-    });
-  }
-  const where = clauses.length ? { AND: clauses } : {};
-  const [rows, total, byStatus] = await Promise.all([
-    repository.listRefundsForAdmin(where, { skip: (page - 1) * limit, take: limit }),
-    repository.countRefundsForAdmin(where),
-    repository.summariseRefundsForAdmin(where),
-  ]);
-  return {
-    items: rows.map((r) => ({
-      id: r.id,
-      razorpayRefundId: r.razorpayRefundId,
-      providerPaymentId: r.payment.providerPaymentId,
-      orderId: r.order.id,
-      orderNumber: r.order.orderNumber,
-      customer: r.order.user.name ?? r.order.user.phone ?? r.order.user.email,
-      amount: Number(r.amount),
-      status: r.status,
-      reason: r.reason,
-      createdAt: r.createdAt,
-    })),
-    page,
-    limit,
-    total,
-    summary: Object.fromEntries(byStatus.map((g) => [g.status, { count: g._count, amount: Number(g._sum.amount ?? 0) }])),
   };
 }
