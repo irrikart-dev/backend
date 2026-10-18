@@ -43,8 +43,6 @@ export const rejectReturnSchema = z.object({
 export const completeReturnSchema = z.object({
   body: z.object({
     restock: z.boolean().default(true),
-    // whole rupees; omit for the pro-rata amount
-    refundAmount: z.number().int().min(0).optional(),
     note: z.string().trim().max(1000).optional(),
   }),
 });

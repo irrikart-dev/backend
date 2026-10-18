@@ -81,9 +81,10 @@ const CANCELLED_BY = {
   system: ' because payment wasn’t completed in time',
 };
 
+// the cancellation's Razorpay refund (payments.refundOrder) — a failed one is staff's to chase
 function refundLine(refund) {
-  if (refund?.status !== 'credited' || !refund.amount) return '';
-  return ` ${rupees(refund.amount)} has been added to your IrriKart wallet.`;
+  if (!['pending', 'processed'].includes(refund?.status)) return '';
+  return ' Your refund is on its way to your original payment method.';
 }
 
 const ORDER_COPY = {
@@ -108,14 +109,7 @@ const ORDER_COPY = {
     `Your return for ${o.orderNumber} is approved — we'll arrange the pickup.${note ? ` ${note}` : ''}`,
   ],
   RETURN_REJECTED: (o, { note }) => ['Return not accepted', `We couldn't accept your return for ${o.orderNumber}: ${note}`],
-  RETURN_COMPLETED: (o, { refund }) => [
-    'Return complete',
-    `We've received the items from ${o.orderNumber}.${refundLine(refund)}`,
-  ],
-  REFUND_PROCESSED: (o, { amount }) => [
-    'Refund processed',
-    `${rupees(amount)} for ${o.orderNumber} has been sent back to your bank. It can take 5–7 working days to show.`,
-  ],
+  RETURN_COMPLETED: (o) => ['Return complete', `We've received the items from ${o.orderNumber}.`],
 };
 
 /** Tells the order's customer about a lifecycle step. `extra` feeds the copy (refund, note, amount). Never throws. */

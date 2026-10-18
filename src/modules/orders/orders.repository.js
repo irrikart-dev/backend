@@ -14,8 +14,6 @@ const orderItemInclude = {
     },
   },
   address: true,
-  refunds: { orderBy: { createdAt: 'asc' } },
-  walletTransactions: { where: { type: 'REFUND' }, orderBy: { createdAt: 'asc' } },
   ...latestPayment,
 };
 

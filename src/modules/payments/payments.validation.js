@@ -9,13 +9,3 @@ export const verifyPaymentSchema = z.object({
     signature: z.string().min(1),
   }),
 });
-
-
-export const manualRefundSchema = z.object({
-  body: z.object({
-    orderId: z.string().min(1),
-    // whole rupees; omit to refund everything still refundable
-    amount: z.number().int().positive().optional(),
-    reason: z.string().trim().min(3).max(200),
-  }),
-});

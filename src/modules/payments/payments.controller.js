@@ -31,9 +31,3 @@ export const listForAdmin = asyncHandler(async (req, res) => {
   const data = await service.listPaymentsForAdmin(req.validated.query);
   res.json({ success: true, data });
 });
-
-// manual refund — credited to the customer's wallet
-export const refundForAdmin = asyncHandler(async (req, res) => {
-  const data = await service.creditOrderByAdmin(req.validated.body, req.user.id);
-  res.status(201).json({ success: true, data });
-});

@@ -2,13 +2,12 @@ import repository from './returns.repository.js';
 import env from '../../config/env.js';
 import { prisma } from '../../config/db.js';
 import * as inventory from '../inventory/inventory.service.js';
-import * as payments from '../payments/payments.service.js';
 import { uploadImage } from '../admin/admin.service.js';
 import * as notifications from '../notifications/notifications.service.js';
 import { BadRequestError, ConflictError, NotFoundError } from '../../common/errors/AppError.js';
 
 // A return is one request per order covering some or all of its lines.
-// REQUESTED → APPROVED (pickup arranged) → COMPLETED (goods back: restocked, refunded);
+// REQUESTED → APPROVED (pickup arranged) → COMPLETED (goods back, optionally restocked);
 // staff may also complete straight from REQUESTED, or reject either open state.
 // ponytail: reverse pickup is arranged by staff outside the app — book it through
 // Shiprocket's return-order API here if volume makes that worth automating.
@@ -38,16 +37,6 @@ function claimedQuantities(order, { onlyCompletedReturns = false } = {}) {
   return claimed;
 }
 
-// goods value the customer actually paid for
-const goodsPaid = (order) => Number(order.totalAmount) - Number(order.shippingAmount ?? 0);
-
-/** The returned lines' share of what was paid — a coupon discount is spread across lines by value. */
-export function proRataRefund(order, lines) {
-  const byId = new Map(order.items.map((i) => [i.id, i]));
-  const subtotal = order.items.reduce((sum, i) => sum + Number(i.totalPrice), 0);
-  const value = lines.reduce((sum, l) => sum + Number(byId.get(l.orderItemId).unitPrice) * l.quantity, 0);
-  return subtotal > 0 ? Math.round((value / subtotal) * goodsPaid(order)) : 0;
-}
 
 function toDto(r) {
   return {
@@ -58,8 +47,6 @@ function toDto(r) {
     details: r.details,
     photoUrls: r.photoUrls,
     adminNote: r.adminNote,
-    refundAmount: r.refundAmount == null ? null : Number(r.refundAmount),
-    refundStatus: r.refundStatus,
     restocked: r.restocked,
     createdAt: r.createdAt,
     resolvedAt: r.resolvedAt,
@@ -167,9 +154,7 @@ async function findOrThrow(id) {
 }
 
 export async function getForAdmin(id) {
-  const row = await findOrThrow(id);
-  const order = await repository.findOrderForReturn(row.orderId);
-  return toAdminDto(row, { suggestedRefund: row.type === 'RETURN' ? proRataRefund(order, row.items) : 0 });
+  return toAdminDto(await findOrThrow(id));
 }
 
 async function decide(id, fromStatuses, data, event) {
@@ -192,18 +177,13 @@ export function reject(id, { note }) {
 }
 
 /**
- * Goods are back: optionally restock them, refund the customer (pro-rata by default,
- * or `refundAmount` if staff override it), and mark the order RETURNED once every
- * unit on it has come back. The refund is wallet credit, COD orders included.
+ * Goods are back: optionally restock them, and mark the order RETURNED once every
+ * unit on it has come back. No refund is issued here — staff settle it outside the app.
  */
-export async function complete(id, { restock = true, refundAmount, note }) {
+export async function complete(id, { restock = true, note }) {
   const row = await findOrThrow(id);
   if (!OPEN.includes(row.status)) throw new ConflictError(`This return is already ${row.status.toLowerCase()}`);
-  if (row.type === 'REPLACE' && refundAmount) throw new BadRequestError('A replacement is not refunded');
-
   const order = await repository.findOrderForReturn(row.orderId);
-  const amount = row.type === 'RETURN' ? (refundAmount ?? proRataRefund(order, row.items)) : 0;
-  if (amount > goodsPaid(order)) throw new BadRequestError(`At most ₹${goodsPaid(order)} can be refunded on this order`);
 
   await prisma.$transaction(async (tx) => {
     const { count } = await repository.transition(
@@ -229,13 +209,6 @@ export async function complete(id, { restock = true, refundAmount, note }) {
     }
   });
 
-  let refund = null;
-  if (amount > 0) {
-    // credited to the wallet, capped at what's still refundable (an earlier manual
-    // refund may have covered some of it) — record what actually went back
-    refund = await payments.refundOrderToWallet(order.id, { reason: `Return: ${row.reason}`, amount });
-    await repository.update(id, { refundAmount: refund.amount, refundStatus: refund.status });
-  }
-  await notifications.notifyOrderEvent(order.id, 'RETURN_COMPLETED', { refund });
+  await notifications.notifyOrderEvent(order.id, 'RETURN_COMPLETED');
   return getForAdmin(id);
 }

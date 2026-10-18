@@ -244,7 +244,7 @@ async function cancel(order, { by, reason }) {
   if (count === 0) throw new ConflictError('This order was just updated — refresh and try again');
 
   const refund =
-    stockCommitted && order.paymentMethod === 'ONLINE' ? await payments.refundOrderToWallet(order.id, { reason }) : null;
+    stockCommitted && order.paymentMethod === 'ONLINE' ? await payments.refundOrder(order.id, { reason }) : null;
   await notifications.notifyOrderEvent(order.id, 'ORDER_CANCELLED', { refund });
   return { refundStatus: refund?.status ?? null };
 }
@@ -433,17 +433,6 @@ function toOrderDto(order) {
     returnableUntil: returns.returnableUntil(order),
     items,
     address: toOrderAddressDto(order.address),
-    // money given back so far — cancellation, return or manual refund. Wallet credits
-    // (status "credited"), plus any card/UPI refund from before refunds moved to the wallet.
-    refunds: [
-      ...(order.refunds ?? []).map((r) => ({ amount: Number(r.amount), status: r.status, reason: r.reason, createdAt: r.createdAt })),
-      ...(order.walletTransactions ?? []).map((t) => ({
-        amount: Number(t.amount),
-        status: 'credited',
-        reason: t.reason,
-        createdAt: t.createdAt,
-      })),
-    ].sort((a, b) => a.createdAt - b.createdAt),
   };
 }
 
@@ -514,16 +503,10 @@ export async function listOrdersForAdmin({ page, limit, ...filter }) {
 export async function getOrderForAdmin(orderId) {
   const order = await repository.findByIdForAdmin(orderId);
   if (!order) throw new NotFoundError('Order not found');
-  const [shipment, returnRequests, refundable] = await Promise.all([
-    shipping.getForOrder(orderId),
-    returns.listForOrder(orderId),
-    payments.refundableFor(orderId),
-  ]);
+  const [shipment, returnRequests] = await Promise.all([shipping.getForOrder(orderId), returns.listForOrder(orderId)]);
   return {
     ...withSplit(order, toOrderDto(order)),
     returns: returnRequests,
-    // what staff can still credit back to the customer's wallet
-    refundable,
     customer: { id: order.user.id, name: customerName(order.user), phone: order.user.phone, email: order.user.email },
     vendor: order.vendor,
     payments: order.payments.map((p) => ({

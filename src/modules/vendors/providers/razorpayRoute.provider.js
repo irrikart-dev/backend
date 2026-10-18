@@ -20,11 +20,6 @@ class RazorpayRouteProvider {
   transfer(paymentId, transfers) {
     return this.#client.payments.transfer(paymentId, { transfers });
   }
-
-  // pulls `amount` paise back from the linked account into the platform's balance
-  reverseTransfer(transferId, amount) {
-    return this.#client.transfers.reverse(transferId, { amount });
-  }
 }
 
 export const routeProvider = new RazorpayRouteProvider();

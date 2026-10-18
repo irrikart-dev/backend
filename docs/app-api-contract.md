@@ -29,9 +29,8 @@ Messages in the error tables are the exact strings the server sends. The app may
 | | Customer order detail no longer includes `vendorAmount` / `platformAmount`. |
 | | Hidden products and unpayable sellers can't be carted or checked out. Cart lines carry `purchasable`. |
 | | Malformed JSON bodies return `400 Malformed JSON body` (was 500). |
-| 2026-10-19 | **Returns:** `POST /returns/photos`, `POST /returns`, `GET /returns`. Order detail adds `deliveredAt`, `returnableUntil`, `returns[]` and `refunds[]`. |
-| | **Wallet:** every refund (cancellation, return, staff refund, payment that arrived after cancellation) is credited to the user's IrriKart wallet, not the card/UPI. `GET /wallet`. Cancel responses return `refundStatus: "credited"`. |
-| | **Notifications:** `POST`/`DELETE /notifications/devices` for FCM tokens, `GET /notifications`, `POST /notifications/:id/read`, `POST /notifications/read-all`. Order, return and refund updates arrive as pushes. |
+| 2026-10-19 | **Returns:** `POST /returns/photos`, `POST /returns`, `GET /returns`. Order detail adds `deliveredAt`, `returnableUntil` and `returns[]`. A completed return restocks the items but issues no refund in the app. |
+| | **Notifications:** `POST`/`DELETE /notifications/devices` for FCM tokens, `GET /notifications`, `POST /notifications/:id/read`, `POST /notifications/read-all`. Order and return updates arrive as pushes. |
 | | **Coupons:** `GET /discounts/offers`. New checkout error `400 This coupon is only for your first order`. A coupon issued to another customer returns `404 Coupon not found`. |
 
 ---
@@ -812,7 +811,7 @@ Errors:
 | `PACKED` | Seller packed it | "Packed". No cancel |
 | `SHIPPED` | Handed to the courier | "Shipped". Show the shipment (AWB/events) if present |
 | `DELIVERED` | Delivered (currently set by IrriKart admin) | "Delivered". Offer reviews |
-| `CANCELLED` | Cancelled. `cancelledBy` is `customer` / `vendor` (seller rejected) / `admin` / `system` (payment not completed in time). `cancelReason` holds the text | "Cancelled" plus reason. Mention the wallet credit if it was paid online |
+| `CANCELLED` | Cancelled. `cancelledBy` is `customer` / `vendor` (seller rejected) / `admin` / `system` (payment not completed in time). `cancelReason` holds the text | "Cancelled" plus reason. Mention a refund if it was paid online |
 | `RETURNED` | In the enum, but nothing sets it today | Render generically |
 
 `paymentStatus` (latest gateway attempt, online orders only): `CREATED` (attempt open), `CAPTURED` (paid), `FAILED`, or `null` for COD.
@@ -895,7 +894,6 @@ Returns at most the **latest 50 orders**, newest first. It is a plain array with
         { "status": "IN TRANSIT", "description": "Reached Pune hub", "occurredAt": "2026-10-18T02:31:00.000Z" }
       ]
     },
-    "refunds": [],
     "returns": []
   }
 }
@@ -908,7 +906,6 @@ Returns at most the **latest 50 orders**, newest first. It is a plain array with
 | `discount` | `subtotal − amount`, never negative. Not stored separately |
 | `deliveredAt` | When the order reached `DELIVERED`. Null before |
 | `returnableUntil` | Last moment a return can be requested. Non-null only while `DELIVERED`. Show **Return items** while `now < returnableUntil` and no entry in `returns` is `REQUESTED` or `APPROVED` |
-| `refunds[]` | `{ amount, status, reason, createdAt }`, oldest first, for money given back (cancellation, return, staff refund). `status` is `credited` (added to the wallet). Orders from before the wallet may also show card/UPI refunds with `pending`, `processed` or `failed` |
 | `returns[]` | Return requests on this order, newest first. Shape as in **Returns** |
 | `acceptedAt` | When the seller accepted. Null before |
 | `cancelledAt`, `cancelledBy`, `cancelReason` | Set when cancelled |
@@ -947,12 +944,12 @@ When cancelling is allowed:
 - `CONFIRMED`: only within `ORDER_CANCEL_WINDOW_HOURS` (default **24 h**) of `createdAt`. This holds even after the seller has accepted.
 - Any other status: never.
 
-Effects: held or sold stock goes back on sale, a coupon use is given back, and a **paid online** order is refunded in full **to the user's IrriKart wallet** (see Wallet). Unpaid and COD orders get no refund.
+Effects: held or sold stock goes back on sale, a coupon use is given back, and a **paid online** order is refunded in full to the original payment method. Unpaid and COD orders get no refund.
 
 Response 200: the full order detail (as in `GET /orders/:id`, status `CANCELLED`) **plus** `refundStatus`:
 
 ```json
-{ "success": true, "data": { "id": "cm2ord0001user0000000001", "status": "CANCELLED", "cancelledBy": "customer", "cancelReason": "Ordered the wrong size", "refundStatus": "credited" } }
+{ "success": true, "data": { "id": "cm2ord0001user0000000001", "status": "CANCELLED", "cancelledBy": "customer", "cancelReason": "Ordered the wrong size", "refundStatus": "processed" } }
 ```
 
 (The response is abbreviated here.)
@@ -960,7 +957,8 @@ Response 200: the full order detail (as in `GET /orders/:id`, status `CANCELLED`
 | `refundStatus` | Meaning / UI |
 |---|---|
 | `null` | No refund needed (unpaid, or COD) |
-| `credited` | The amount paid was added to the wallet. Show "₹… added to your IrriKart wallet" |
+| `pending` / `processed` | Refund created at Razorpay. Show "Refund initiated. It reaches your account in 5 to 7 working days" |
+| `failed` | Razorpay refund call failed. The order is still cancelled and IrriKart staff will follow up. Show "Refund will be processed by our team" |
 
 | Status | Message | When |
 |---|---|---|
@@ -1046,7 +1044,7 @@ Response 200:
 | `CONFIRMED` | Paid. The cart has been converted | Show success. Refresh the cart badge (now empty) |
 | `PLACED` | Razorpay hasn't settled the payment yet (authorized, not captured) | Show "Confirming payment…" and **poll** `GET /orders/:id` |
 | `PAYMENT_FAILED` | Razorpay reports the payment failed | Show failure with Retry / Cancel |
-| `CANCELLED` | Payment landed after the order was cancelled or expired. The server credits it to the wallet automatically | "Order was cancelled; your payment was added to your IrriKart wallet" |
+| `CANCELLED` | Payment landed after the order was cancelled or expired. The server refunds it automatically | "Order was cancelled; your payment will be refunded" |
 
 **Polling advice:** after `PLACED`, poll `GET /orders/:id` every 3 s for up to about 60 s, until `status` is no longer `PLACED`. If it is still `PLACED` after that, stop and show "Payment is being confirmed. We'll update your order", and refresh when the user next opens Orders. The webhook settles it in the background.
 
@@ -1280,8 +1278,6 @@ Response 201, the return request:
     "details": null,
     "photoUrls": ["https://xyz.supabase.co/storage/v1/object/public/irrikart-uploads/returns/9f1c.jpeg"],
     "adminNote": null,
-    "refundAmount": null,
-    "refundStatus": null,
     "restocked": false,
     "createdAt": "2026-10-20T08:00:00.000Z",
     "resolvedAt": null,
@@ -1296,7 +1292,7 @@ Statuses:
 |---|---|
 | `REQUESTED` | Waiting for staff |
 | `APPROVED` | Accepted. Staff arrange the pickup |
-| `COMPLETED` | Goods received. For a `RETURN`, `refundAmount` is what was credited to the wallet: the items' share of what was paid, after any coupon. `refundStatus` is `credited`, or `none` when staff had already refunded the order in full |
+| `COMPLETED` | Goods received. **No refund is issued in the app**; IrriKart staff settle it with the customer |
 | `REJECTED` | Declined. `adminNote` says why |
 
 `adminNote` is a message from staff to the customer. Show it when it isn't null. Each status change also arrives as a push (see Notifications). Once every unit on an order has been returned, the order becomes `RETURNED`.
@@ -1317,7 +1313,7 @@ Statuses:
 
 ## 12. Notifications
 
-Order, return and refund updates, plus staff announcements, are stored in a notification centre and sent as FCM pushes to every device the user is signed in on.
+Order and return updates, plus staff announcements, are stored in a notification centre and sent as FCM pushes to every device the user is signed in on.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
@@ -1346,7 +1342,7 @@ Order, return and refund updates, plus staff announcements, are stored in a noti
 }
 ```
 
-`type` values: `ORDER_CONFIRMED`, `ORDER_SHIPPED`, `ORDER_DELIVERED`, `ORDER_CANCELLED`, `RETURN_APPROVED`, `RETURN_REJECTED`, `RETURN_COMPLETED`, `REFUND_PROCESSED`, `CAMPAIGN`.
+`type` values: `ORDER_CONFIRMED`, `ORDER_SHIPPED`, `ORDER_DELIVERED`, `ORDER_CANCELLED`, `RETURN_APPROVED`, `RETURN_REJECTED`, `RETURN_COMPLETED`, `CAMPAIGN`.
 
 The FCM message carries the same title and body as a `notification`. Its `data` has `type` plus the `data` fields above, all as strings. On tap:
 - `orderId` present: open that order.
@@ -1355,33 +1351,7 @@ The FCM message carries the same title and body as a `notification`. Its `data` 
 
 ---
 
-## 13. Wallet
-
-Refunds are store credit. Every refund (cancelled paid order, completed return, staff refund, or a payment that arrived after the order was cancelled) is added to the user's wallet. None go back to the card or UPI.
-
-| Method | Path | Auth | Purpose |
-|---|---|---|---|
-| GET | `/wallet` | yes | Balance and the latest 50 changes, newest first |
-
-```json
-{
-  "success": true,
-  "data": {
-    "balance": 5310,
-    "currency": "INR",
-    "transactions": [
-      { "id": "cm2wtx0001user0000000001", "amount": 810, "balanceAfter": 5310, "type": "REFUND", "reason": "Return: Dripper heads cracked", "order": { "id": "cm2ord0001user0000000001", "orderNumber": "ORD-20261016-A1B2C3" }, "createdAt": "2026-10-21T10:00:00.000Z" }
-    ]
-  }
-}
-```
-
-- `amount` is signed: positive for a credit, negative for a debit. `type` is `REFUND` (money given back on an order) or `ADJUSTMENT` (a staff correction). `order` is null when the change isn't tied to an order.
-- **The balance can't be spent yet.** Show it on the account screen ("IrriKart wallet ₹5,310"), with the history. Checkout doesn't take wallet money until the backend adds it (see Not available yet).
-
----
-
-## 14. Not available yet
+## 13. Not available yet
 
 Don't build UI that depends on these. Each was checked in the code:
 
@@ -1391,8 +1361,7 @@ Don't build UI that depends on these. Each was checked in the code:
 | Shipping fee, pincode serviceability, delivery ETA | Not implemented |
 | Order tracking URL / courier name | Not exposed (only AWB + events) |
 | Customer-booked return pickup | Staff arrange pickups outside the app |
-| Paying with the wallet balance | Not yet. Refunds credit the wallet, but checkout doesn't spend it |
-| Refunds to the original card/UPI | Off by decision. Refunds go to the wallet |
+| Refunds for returns | Not in the app. A completed return only restocks; staff refund outside the app |
 | Category tree | `parentId` is not exposed. Categories are a flat list |
 | Vendor storefront endpoint | None. Use `GET /catalog/products?vendor=<id>` plus `product.vendor` |
 | Pagination on orders, reviews, RFQs, wishlist | Not implemented. Orders are capped at 50 |
@@ -1400,7 +1369,7 @@ Don't build UI that depends on these. Each was checked in the code:
 
 ---
 
-## 15. Recommended app flows
+## 14. Recommended app flows
 
 ### A. Sign-in
 
@@ -1442,7 +1411,7 @@ Steps 1 to 7 as in B, then:
    - It becomes `CONFIRMED`: success.
    - It becomes `PAYMENT_FAILED`: failure screen (step 5).
    - It is still `PLACED` after 60 s: "We're confirming your payment" and send the user to Order detail.
-4. `CANCELLED`: "Order expired; your payment was added to your IrriKart wallet".
+4. `CANCELLED`: "Order expired; refund on its way".
 5. SDK error, or `PAYMENT_FAILED`: show **Retry** and **Cancel**.
    - Retry: `POST /orders/<orderId>/pay`, then reopen Razorpay with the new response.
    - Cancel: flow E.
@@ -1454,7 +1423,7 @@ Steps 1 to 7 as in B, then:
 1. Show **Cancel** when the status is `PLACED` or `PAYMENT_FAILED`, or when it is `CONFIRMED` and `now < createdAt + 24 h`.
 2. Ask for a reason (min 3 chars, max 500. Offer presets like "Ordered by mistake", plus free text).
 3. `POST /orders/<id>/cancel { reason }`.
-4. 200: update the order from the response. If `refundStatus == "credited"`, show "₹… added to your IrriKart wallet". Null means nothing was paid, so nothing to refund.
+4. 200: update the order from the response. Show the refund copy based on `refundStatus` (null, pending/processed, failed).
 5. 409: show the message and refetch `GET /orders/<id>` (the status probably moved on).
 
 ### F. Edit an address
@@ -1480,7 +1449,7 @@ Steps 1 to 7 as in B, then:
 2. Let the user pick lines and quantities, a type (return or replace), a reason (offer presets like "Damaged", "Wrong item" or "Not as described"), optional details, and up to 5 photos.
 3. Upload each photo with `POST /returns/photos` and collect the `url`s.
 4. `POST /returns { orderId, type, reason, details?, photoUrls, items }` → 201. Show "Return requested".
-5. Order detail shows `returns[0].status` and `adminNote`. After `COMPLETED`, show "₹`refundAmount` added to your wallet".
+5. Order detail shows `returns[0].status` and `adminNote`. After `COMPLETED`, show "Return complete — our team will contact you about the refund".
 
 ### I. Push notifications
 
@@ -1492,7 +1461,7 @@ Steps 1 to 7 as in B, then:
 
 ---
 
-## 16. Open questions
+## 15. Open questions
 
 1. **Hosts.** The production and staging base URLs are not in the backend repo. The Swagger `servers` entry is localhost only. Who supplies them?
 2. **Validation error shape.** `details.fieldErrors` is keyed by `body` / `query` / `params`, not by field name, so the app can't highlight the failing field. Should `validate()` flatten `body`'s own errors (e.g. `{ name: [...], pincode: [...] }`)?

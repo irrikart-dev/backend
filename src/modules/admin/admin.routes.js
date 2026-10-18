@@ -9,7 +9,6 @@ import * as rfqController from '../rfq/rfq.controller.js';
 import * as reviewsController from '../reviews/reviews.controller.js';
 import * as returnsController from '../returns/returns.controller.js';
 import * as notificationsController from '../notifications/notifications.controller.js';
-import * as walletController from '../wallet/wallet.controller.js';
 import { authenticate, loadUser, authorize, requirePermission } from '../../common/middlewares/auth.js';
 import { validate } from '../../common/middlewares/validate.js';
 import { imageUpload } from '../../common/middlewares/upload.js';
@@ -46,8 +45,6 @@ import {
   rejectReturnSchema,
   completeReturnSchema,
 } from '../returns/returns.validation.js';
-import { manualRefundSchema } from '../payments/payments.validation.js';
-import { listWalletRefundsQuerySchema } from '../wallet/wallet.validation.js';
 import { campaignSchema } from '../notifications/notifications.validation.js';
 import { cancelOrderSchema } from '../orders/orders.validation.js';
 import { createVendorSchema, updateVendorSchema } from '../vendors/vendors.validation.js';
@@ -71,7 +68,7 @@ router.use('/stats', catalogOrInventory);
 router.use(['/uploads', '/categories', '/brands', '/banners', '/reviews'], catalog);
 router.use('/inventory', inventory);
 router.use(['/orders', '/rfq', '/returns'], requirePermission('orders'));
-router.use(['/payments', '/refunds'], requirePermission('payments'));
+router.use('/payments', requirePermission('payments'));
 router.use('/vendors', requirePermission('vendors'));
 router.use(['/staff', '/customers', '/coupons', '/notifications'], authorize('ADMIN'));
 
@@ -225,8 +222,6 @@ router.get('/orders/:id/invoice', ordersController.getInvoiceForAdmin);
  *       200: { description: "{ items, page, limit, total, summary }" }
  */
 router.get('/payments', validate(listPaymentsQuerySchema), paymentsController.listForAdmin);
-router.get('/refunds', validate(listWalletRefundsQuerySchema), walletController.listRefundsForAdmin);
-router.post('/refunds', validate(manualRefundSchema), paymentsController.refundForAdmin);
 
 /**
  * @openapi
@@ -404,7 +399,7 @@ router.patch('/reviews/:id', validate(reviewStatusSchema), reviewsController.set
  * /admin/returns/{id}:
  *   get:
  *     tags: [Admin]
- *     summary: One return request, with the pro-rata `suggestedRefund`
+ *     summary: One return request
  *     security: [{ bearerAuth: [] }]
  *     responses:
  *       200: { description: Return request }
@@ -425,27 +420,13 @@ router.patch('/reviews/:id', validate(reviewStatusSchema), reviewsController.set
  * /admin/returns/{id}/complete:
  *   post:
  *     tags: [Admin]
- *     summary: Goods received — restock (default) and credit the wallet (pro-rata unless `refundAmount` is given)
+ *     summary: Goods received — restock the items (default) and close the request
  *     description: >
- *       The order becomes RETURNED once every unit on it is back. The refund is
- *       credited to the customer's wallet (COD orders too).
+ *       The order becomes RETURNED once every unit on it is back. No refund is issued
+ *       here — staff settle it outside the app.
  *     security: [{ bearerAuth: [] }]
  *     responses:
- *       200: { description: Return request, with refundStatus }
- * /admin/refunds:
- *   get:
- *     tags: [Admin]
- *     summary: Every refund credited to a customer wallet, with the total for the filtered set
- *     security: [{ bearerAuth: [] }]
- *     responses:
- *       200: { description: "{ items, page, limit, total, summary: { credited } }" }
- *   post:
- *     tags: [Admin]
- *     summary: Manual refund to the customer's wallet — full (default) or partial, capped at what's left
- *     security: [{ bearerAuth: [] }]
- *     responses:
- *       201: { description: "{ status: credited, amount }" }
- *       409: { description: Order unpaid, or already refunded in full }
+ *       200: { description: Return request }
  */
 router.get('/returns', validate(listReturnsQuerySchema), returnsController.listForAdmin);
 router.get('/returns/:id', returnsController.getForAdmin);

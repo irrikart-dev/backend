@@ -45,27 +45,23 @@ model User {
   status             UserStatus @default(ACTIVE)
   // Razorpay customer, created lazily at first online checkout — what saved cards/UPI hang off
   razorpayCustomerId String?    @unique
-  // store credit in rupees — every refund lands here, see src/modules/wallet. Kept in
-  // step with the WalletTransaction ledger, which is the audit trail.
-  walletBalance      Decimal    @default(0) @db.Decimal(10, 2)
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
 
-  addresses          Address[]
-  deviceTokens       DeviceToken[]
-  carts              Cart[]
-  orders             Order[]
-  wishlist           WishlistItem[]
-  recentlyViewed     RecentlyViewed[]
-  reviews            Review[]
-  rfqRequests        RfqRequest[]
-  returnRequests     ReturnRequest[]
-  walletTransactions WalletTransaction[]
-  notifications      Notification[]
-  couponUsages       CouponUsage[]
+  addresses       Address[]
+  deviceTokens    DeviceToken[]
+  carts           Cart[]
+  orders          Order[]
+  wishlist        WishlistItem[]
+  recentlyViewed  RecentlyViewed[]
+  reviews         Review[]
+  rfqRequests     RfqRequest[]
+  returnRequests  ReturnRequest[]
+  notifications   Notification[]
+  couponUsages    CouponUsage[]
   // coupons issued to this customer alone
-  personalCoupons    Coupon[]
-  vendor             Vendor?
+  personalCoupons Coupon[]
+  vendor          Vendor?
 
   // every list of a user's own rows filters by userId then sorts by time —
   // covered case-by-case on the child tables (orders, notifications, etc).
@@ -415,13 +411,12 @@ model Order {
   cancelReason   String?
   createdAt      DateTime      @default(now())
 
-  items              OrderItem[]
-  payments           Payment[]
-  refunds            Refund[]
-  shipment           Shipment?
-  couponUsages       CouponUsage[]
-  returns            ReturnRequest[]
-  walletTransactions WalletTransaction[]
+  items        OrderItem[]
+  payments     Payment[]
+  refunds      Refund[]
+  shipment     Shipment?
+  couponUsages CouponUsage[]
+  returns      ReturnRequest[]
 
   // order history screen: this user's orders, newest first
   @@index([userId, createdAt])
@@ -488,16 +483,12 @@ model Refund {
   orderId          String
   order            Order    @relation(fields: [orderId], references: [id])
   razorpayRefundId String   @unique
-  status           String // pending | processed | failed — kept current by the refund.* webhooks
+  status           String
   amount           Decimal  @db.Decimal(10, 2)
-  // why the money went back: cancellation, return, manual admin refund, ...
-  reason           String?
   createdAt        DateTime @default(now())
 
   @@index([paymentId])
   @@index([orderId])
-  // admin refunds view, newest first
-  @@index([createdAt])
 }
 
 // ============================================================
@@ -548,7 +539,7 @@ enum ReturnType {
   REPLACE
 }
 
-// REQUESTED → APPROVED (pickup arranged) → COMPLETED (goods back, restocked/refunded);
+// REQUESTED → APPROVED (pickup arranged) → COMPLETED (goods back, optionally restocked);
 // REJECTED from either open state. Completing straight from REQUESTED is allowed too.
 enum ReturnStatus {
   REQUESTED
@@ -558,25 +549,21 @@ enum ReturnStatus {
 }
 
 model ReturnRequest {
-  id           String       @id @default(cuid())
-  orderId      String
-  order        Order        @relation(fields: [orderId], references: [id])
-  userId       String
-  user         User         @relation(fields: [userId], references: [id])
-  type         ReturnType   @default(RETURN)
-  reason       String
-  details      String?
-  photoUrls    String[]     @default([])
-  status       ReturnStatus @default(REQUESTED)
+  id         String       @id @default(cuid())
+  orderId    String
+  order      Order        @relation(fields: [orderId], references: [id])
+  userId     String
+  user       User         @relation(fields: [userId], references: [id])
+  type       ReturnType   @default(RETURN)
+  reason     String
+  details    String?
+  photoUrls  String[]     @default([])
+  status     ReturnStatus @default(REQUESTED)
   // shown to the customer with the decision
-  adminNote    String?
-  // what was actually refunded on completion — null until then, and for replacements
-  refundAmount Decimal?     @db.Decimal(10, 2)
-  // gateway refund outcome on completion; "manual" for COD (paid back outside the gateway)
-  refundStatus String?
-  restocked    Boolean      @default(false)
-  resolvedAt   DateTime?
-  createdAt    DateTime     @default(now())
+  adminNote  String?
+  restocked  Boolean      @default(false)
+  resolvedAt DateTime?
+  createdAt  DateTime     @default(now())
 
   items ReturnItem[]
 
@@ -744,32 +731,4 @@ model NotificationCampaign {
   createdAt  DateTime @default(now())
 
   @@index([createdAt])
-}
-
-// ============================================================
-// wallet — src/modules/wallet
-// ============================================================
-
-// one row per balance change. amount is signed: + credit, − debit.
-model WalletTransaction {
-  id           String   @id @default(cuid())
-  userId       String
-  user         User     @relation(fields: [userId], references: [id])
-  amount       Decimal  @db.Decimal(10, 2)
-  // balance right after this change — lets the history screen show a running balance
-  balanceAfter Decimal  @db.Decimal(10, 2)
-  type         String // REFUND (order money given back) | ADJUSTMENT (staff correction)
-  reason       String
-  orderId      String?
-  order        Order?   @relation(fields: [orderId], references: [id])
-  // staff member behind a manual credit/adjustment; null for automatic refunds
-  createdById  String?
-  createdAt    DateTime @default(now())
-
-  // wallet history screen: one user's changes, newest first
-  @@index([userId, createdAt])
-  // "how much of this order has been given back already"
-  @@index([orderId])
-  // admin refunds view, newest first
-  @@index([type, createdAt])
 }

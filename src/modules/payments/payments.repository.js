@@ -52,27 +52,13 @@ export default {
     return prisma.payment.update({ where: { id: paymentId }, data: { transferId, transferStatus } });
   },
 
-  // refunds come along so callers can work out how much is still refundable
   findCapturedForOrder(orderId) {
-    return prisma.payment.findFirst({ where: { orderId, status: 'CAPTURED' }, include: { refunds: true } });
+    return prisma.payment.findFirst({ where: { orderId, status: 'CAPTURED' } });
   },
 
-  createRefund({ paymentId, orderId, razorpayRefundId, status, amount, reason }) {
-    return prisma.refund.create({ data: { paymentId, orderId, razorpayRefundId, status, amount, reason } });
+  createRefund({ paymentId, orderId, razorpayRefundId, status, amount }) {
+    return prisma.refund.create({ data: { paymentId, orderId, razorpayRefundId, status, amount } });
   },
-
-  findRefundByProviderId(razorpayRefundId) {
-    return prisma.refund.findUnique({ where: { razorpayRefundId } });
-  },
-
-  setRefundReason(razorpayRefundId, reason) {
-    return prisma.refund.update({ where: { razorpayRefundId }, data: { reason } });
-  },
-
-  updateRefundStatus(id, status) {
-    return prisma.refund.update({ where: { id }, data: { status } });
-  },
-
 
   // ---- admin reconciliation ----
 
@@ -89,7 +75,6 @@ export default {
             platformAmount: true,
             vendor: { select: { storeName: true } },
             user: { select: { name: true, phone: true, email: true } },
-            walletTransactions: { where: { type: 'REFUND' }, select: { amount: true } },
           },
         },
         refunds: { select: { amount: true, status: true } },
@@ -105,18 +90,11 @@ export default {
   },
 
   async summaryForAdmin(where) {
-    const [byStatus, refunded, credited, transferFailed] = await Promise.all([
+    const [byStatus, refunded, transferFailed] = await Promise.all([
       prisma.payment.groupBy({ by: ['status'], where, _sum: { amount: true }, _count: true }),
-      prisma.refund.aggregate({ where: { payment: where, status: { not: 'failed' } }, _sum: { amount: true } }),
-      // refunds now go to the wallet; online orders have one payment, so this doesn't double-count
-      prisma.walletTransaction.aggregate({
-        where: { type: 'REFUND', order: { paymentMethod: 'ONLINE', payments: { some: where } } },
-        _sum: { amount: true },
-      }),
-      prisma.payment.count({
-        where: { AND: [where, { status: 'CAPTURED', transferStatus: { in: ['failed', 'reversal_failed'] } }] },
-      }),
+      prisma.refund.aggregate({ where: { payment: where }, _sum: { amount: true } }),
+      prisma.payment.count({ where: { AND: [where, { status: 'CAPTURED', transferStatus: 'failed' }] } }),
     ]);
-    return { byStatus, refunded: Number(refunded._sum.amount ?? 0) + Number(credited._sum.amount ?? 0), transferFailed };
+    return { byStatus, refunded: refunded._sum.amount, transferFailed };
   },
 };

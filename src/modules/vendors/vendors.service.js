@@ -140,11 +140,6 @@ export function transferPayout(razorpayAccountId, providerPaymentId, amountPaise
   ]);
 }
 
-/** Claws back part of a Route transfer — e.g. the vendor's share of an order refunded to the customer's wallet. */
-export function reverseTransfer(transferId, amountPaise) {
-  return routeProvider.reverseTransfer(transferId, amountPaise);
-}
-
 export async function listPayouts(vendorId) {
   const rows = await repository.listPayouts(vendorId);
   return rows.map((p) => ({

@@ -81,10 +81,9 @@ export async function getCustomer(id) {
   const row = await repository.findCustomer(id);
   if (!row) throw new NotFoundError('Customer not found');
   const [spent] = await repository.sumPaidOrdersByUser([id]);
-  const { _count, orders, walletBalance, ...user } = row;
+  const { _count, orders, ...user } = row;
   return {
     ...user,
-    walletBalance: Number(walletBalance),
     orderCount: _count.orders,
     totalSpent: Number(spent?._sum.totalAmount ?? 0),
     orders: orders.map((o) => ({ ...o, totalAmount: Number(o.totalAmount), vendor: o.vendor.storeName })),
