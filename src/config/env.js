@@ -39,6 +39,8 @@ export default {
 
   MSG91_AUTH_KEY: process.env.MSG91_AUTH_KEY,
   MSG91_EMAIL_DOMAIN: process.env.MSG91_EMAIL_DOMAIN,
+  // sender address — must sit on MSG91_EMAIL_DOMAIN
+  MSG91_EMAIL_FROM: process.env.MSG91_EMAIL_FROM || `no-reply@${process.env.MSG91_EMAIL_DOMAIN}`,
 
   STORAGE_PROVIDER: process.env.STORAGE_PROVIDER || 'supabase',
 
