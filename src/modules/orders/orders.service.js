@@ -11,6 +11,7 @@ import * as addresses from '../addresses/addresses.service.js';
 import { isProductSellable } from '../catalog/catalog.service.js';
 import * as shipping from '../shipping/shipping.service.js';
 import * as vendorsService from '../vendors/vendors.service.js';
+import * as returns from '../returns/returns.service.js';
 import logger from '../../common/utils/logger.js';
 import { BadRequestError, ConflictError, NotFoundError } from '../../common/errors/AppError.js';
 
@@ -300,7 +301,8 @@ async function advance(order, target, extra = {}) {
   if (NEXT_STATUS[order.status] !== target) {
     throw new ConflictError(`Can't move a ${order.status.toLowerCase()} order to ${target.toLowerCase()}`);
   }
-  const { count } = await repository.transition(order.id, order.status, { status: target, ...extra });
+  const delivered = target === 'DELIVERED' ? { deliveredAt: new Date() } : {};
+  const { count } = await repository.transition(order.id, order.status, { status: target, ...delivered, ...extra });
   if (count === 0) throw new ConflictError('This order was just updated — refresh and try again');
 }
 
@@ -419,16 +421,26 @@ function toOrderDto(order) {
     cancelledAt: order.cancelledAt,
     cancelledBy: order.cancelledBy,
     cancelReason: order.cancelReason,
+    deliveredAt: order.deliveredAt,
+    // last day the customer can ask for a return; null unless DELIVERED
+    returnableUntil: returns.returnableUntil(order),
     items,
     address: toOrderAddressDto(order.address),
+    // money given back so far — cancellation, return or manual refund
+    refunds: (order.refunds ?? []).map((r) => ({
+      amount: Number(r.amount),
+      status: r.status,
+      reason: r.reason,
+      createdAt: r.createdAt,
+    })),
   };
 }
 
 export async function getOrder(userId, orderId) {
   const order = await repository.findByIdForUser(orderId, userId);
   if (!order) throw new NotFoundError('Order not found');
-  const shipment = await shipping.getForOrder(orderId);
-  return { ...toOrderDto(order), shipment };
+  const [shipment, returnRequests] = await Promise.all([shipping.getForOrder(orderId), returns.listForOrder(orderId)]);
+  return { ...toOrderDto(order), shipment, returns: returnRequests };
 }
 
 export async function listOrders(userId) {
@@ -491,9 +503,10 @@ export async function listOrdersForAdmin({ page, limit, ...filter }) {
 export async function getOrderForAdmin(orderId) {
   const order = await repository.findByIdForAdmin(orderId);
   if (!order) throw new NotFoundError('Order not found');
-  const shipment = await shipping.getForOrder(orderId);
+  const [shipment, returnRequests] = await Promise.all([shipping.getForOrder(orderId), returns.listForOrder(orderId)]);
   return {
     ...withSplit(order, toOrderDto(order)),
+    returns: returnRequests,
     customer: { id: order.user.id, name: customerName(order.user), phone: order.user.phone, email: order.user.email },
     vendor: order.vendor,
     payments: order.payments.map((p) => ({

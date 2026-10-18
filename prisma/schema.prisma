@@ -56,6 +56,7 @@ model User {
   recentlyViewed RecentlyViewed[]
   reviews        Review[]
   rfqRequests    RfqRequest[]
+  returnRequests ReturnRequest[]
   notifications  Notification[]
   couponUsages   CouponUsage[]
   vendor         Vendor?
@@ -66,22 +67,22 @@ model User {
 }
 
 model Address {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name      String // recipient name — required by Shiprocket's create-order API
-  phone     String // recipient phone — same
-  line1     String
-  line2     String?
-  city      String
-  state     String
-  pincode   String
-  isDefault Boolean  @default(false)
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String // recipient name — required by Shiprocket's create-order API
+  phone      String // recipient phone — same
+  line1      String
+  line2      String?
+  city       String
+  state      String
+  pincode    String
+  isDefault  Boolean   @default(false)
   // set instead of editing/deleting an address an order already shipped to, so the
   // order (and its invoice) keeps the exact address — archived rows are hidden from
   // the user and can't be checked out to again
   archivedAt DateTime?
-  createdAt DateTime @default(now())
+  createdAt  DateTime  @default(now())
 
   orders Order[]
 
@@ -402,6 +403,8 @@ model Order {
   // vendor has seen and taken the order — gates pack/ship, see orders.service.js
   acceptedAt     DateTime?
   cancelledAt    DateTime?
+  // set when the order reaches DELIVERED (admin or courier feed) — starts the return window
+  deliveredAt    DateTime?
   cancelledBy    String? // customer | vendor | admin | system
   cancelReason   String?
   createdAt      DateTime      @default(now())
@@ -411,6 +414,7 @@ model Order {
   refunds      Refund[]
   shipment     Shipment?
   couponUsages CouponUsage[]
+  returns      ReturnRequest[]
 
   // order history screen: this user's orders, newest first
   @@index([userId, createdAt])
@@ -430,7 +434,8 @@ model OrderItem {
   unitPrice  Decimal        @db.Decimal(10, 2)
   totalPrice Decimal        @db.Decimal(10, 2)
 
-  review Review?
+  review      Review?
+  returnItems ReturnItem[]
 
   @@index([orderId])
   @@index([variantId])
@@ -476,12 +481,16 @@ model Refund {
   orderId          String
   order            Order    @relation(fields: [orderId], references: [id])
   razorpayRefundId String   @unique
-  status           String
+  status           String // pending | processed | failed — kept current by the refund.* webhooks
   amount           Decimal  @db.Decimal(10, 2)
+  // why the money went back: cancellation, return, manual admin refund, ...
+  reason           String?
   createdAt        DateTime @default(now())
 
   @@index([paymentId])
   @@index([orderId])
+  // admin refunds view, newest first
+  @@index([createdAt])
 }
 
 // ============================================================
@@ -521,6 +530,65 @@ model ShipmentTrackingEvent {
 
   // shipment detail timeline, chronological
   @@index([shipmentId, occurredAt])
+}
+
+// ============================================================
+// returns — src/modules/returns
+// ============================================================
+
+enum ReturnType {
+  RETURN
+  REPLACE
+}
+
+// REQUESTED → APPROVED (pickup arranged) → COMPLETED (goods back, restocked/refunded);
+// REJECTED from either open state. Completing straight from REQUESTED is allowed too.
+enum ReturnStatus {
+  REQUESTED
+  APPROVED
+  COMPLETED
+  REJECTED
+}
+
+model ReturnRequest {
+  id           String       @id @default(cuid())
+  orderId      String
+  order        Order        @relation(fields: [orderId], references: [id])
+  userId       String
+  user         User         @relation(fields: [userId], references: [id])
+  type         ReturnType   @default(RETURN)
+  reason       String
+  details      String?
+  photoUrls    String[]     @default([])
+  status       ReturnStatus @default(REQUESTED)
+  // shown to the customer with the decision
+  adminNote    String?
+  // what was actually refunded on completion — null until then, and for replacements
+  refundAmount Decimal?     @db.Decimal(10, 2)
+  // gateway refund outcome on completion; "manual" for COD (paid back outside the gateway)
+  refundStatus String?
+  restocked    Boolean      @default(false)
+  resolvedAt   DateTime?
+  createdAt    DateTime     @default(now())
+
+  items ReturnItem[]
+
+  // admin queue: filter by status, newest first
+  @@index([status, createdAt])
+  @@index([orderId])
+  @@index([userId])
+}
+
+model ReturnItem {
+  id            String        @id @default(cuid())
+  returnId      String
+  returnRequest ReturnRequest @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  orderItemId   String
+  orderItem     OrderItem     @relation(fields: [orderItemId], references: [id])
+  quantity      Int
+
+  @@index([returnId])
+  @@index([orderItemId])
 }
 
 // ============================================================

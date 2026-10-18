@@ -19,6 +19,8 @@ export default {
   ORDER_CANCEL_WINDOW_HOURS: Number(process.env.ORDER_CANCEL_WINDOW_HOURS || 24),
   // an unpaid online order holds its stock this long before it's auto-cancelled
   ORDER_PAYMENT_TIMEOUT_MINUTES: Number(process.env.ORDER_PAYMENT_TIMEOUT_MINUTES || 30),
+  // days after delivery a customer may still ask to return/replace an order
+  RETURN_WINDOW_DAYS: Number(process.env.RETURN_WINDOW_DAYS || 7),
 
   RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID,
   RAZORPAY_KEY_SECRET: process.env.RAZORPAY_KEY_SECRET,

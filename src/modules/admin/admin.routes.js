@@ -7,6 +7,8 @@ import * as inventoryController from '../inventory/inventory.controller.js';
 import * as discountsController from '../discounts/discounts.controller.js';
 import * as rfqController from '../rfq/rfq.controller.js';
 import * as reviewsController from '../reviews/reviews.controller.js';
+import * as returnsController from '../returns/returns.controller.js';
+import * as shippingController from '../shipping/shipping.controller.js';
 import { authenticate, loadUser, authorize, requirePermission } from '../../common/middlewares/auth.js';
 import { validate } from '../../common/middlewares/validate.js';
 import { imageUpload } from '../../common/middlewares/upload.js';
@@ -37,6 +39,13 @@ import {
 import { createCouponSchema, updateCouponSchema } from '../discounts/discounts.validation.js';
 import { listRfqQuerySchema, updateRfqSchema } from '../rfq/rfq.validation.js';
 import { listReviewsQuerySchema, reviewStatusSchema } from '../reviews/reviews.validation.js';
+import {
+  listReturnsQuerySchema,
+  approveReturnSchema,
+  rejectReturnSchema,
+  completeReturnSchema,
+} from '../returns/returns.validation.js';
+import { listRefundsQuerySchema, manualRefundSchema } from '../payments/payments.validation.js';
 import { cancelOrderSchema } from '../orders/orders.validation.js';
 import { createVendorSchema, updateVendorSchema } from '../vendors/vendors.validation.js';
 
@@ -58,8 +67,8 @@ router.use('/products', (req, res, next) => {
 router.use('/stats', catalogOrInventory);
 router.use(['/uploads', '/categories', '/brands', '/banners', '/reviews'], catalog);
 router.use('/inventory', inventory);
-router.use(['/orders', '/rfq'], requirePermission('orders'));
-router.use('/payments', requirePermission('payments'));
+router.use(['/orders', '/rfq', '/returns', '/shipments'], requirePermission('orders'));
+router.use(['/payments', '/refunds'], requirePermission('payments'));
 router.use('/vendors', requirePermission('vendors'));
 router.use(['/staff', '/customers', '/coupons'], authorize('ADMIN'));
 
@@ -197,6 +206,8 @@ router.get('/orders/:id', ordersController.getForAdmin);
 router.patch('/orders/:id/status', validate(orderStatusSchema), ordersController.updateStatusForAdmin);
 router.post('/orders/:id/cancel', validate(cancelOrderSchema), ordersController.cancelForAdmin);
 router.get('/orders/:id/invoice', ordersController.getInvoiceForAdmin);
+router.post('/orders/:id/shipment', shippingController.bookForAdmin);
+router.post('/orders/:id/rto-received', returnsController.receiveRto);
 
 /**
  * @openapi
@@ -213,6 +224,8 @@ router.get('/orders/:id/invoice', ordersController.getInvoiceForAdmin);
  *       200: { description: "{ items, page, limit, total, summary }" }
  */
 router.get('/payments', validate(listPaymentsQuerySchema), paymentsController.listForAdmin);
+router.get('/refunds', validate(listRefundsQuerySchema), paymentsController.listRefundsForAdmin);
+router.post('/refunds', validate(manualRefundSchema), paymentsController.refundForAdmin);
 
 /**
  * @openapi
@@ -377,5 +390,91 @@ router.patch('/rfq/:id', validate(updateRfqSchema), rfqController.updateForAdmin
  */
 router.get('/reviews', validate(listReviewsQuerySchema), reviewsController.listForAdmin);
 router.patch('/reviews/:id', validate(reviewStatusSchema), reviewsController.setStatusForAdmin);
+
+/**
+ * @openapi
+ * /admin/returns:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Return/replacement requests — filter by status, search reason/order/customer
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: "{ items, page, limit, total }" }
+ * /admin/returns/{id}:
+ *   get:
+ *     tags: [Admin]
+ *     summary: One return request, with the pro-rata `suggestedRefund`
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Return request }
+ * /admin/returns/{id}/approve:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Accept a return — staff arrange the pickup
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Return request }
+ * /admin/returns/{id}/reject:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Turn a return down — `note` is shown to the customer
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Return request }
+ * /admin/returns/{id}/complete:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Goods received — restock (default) and refund (pro-rata unless `refundAmount` is given)
+ *     description: >
+ *       The order becomes RETURNED once every unit on it is back. COD refunds are
+ *       recorded as `manual` — pay them back outside the gateway.
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Return request, with refundStatus }
+ * /admin/shipments:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Shipping issues — RTO/failed parcels, and paid orders whose courier booking failed
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: "{ shipments, unbooked }" }
+ * /admin/orders/{id}/shipment:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Retry booking the Shiprocket shipment for a paid order
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Shipment }
+ *       502: { description: Shiprocket rejected it — message says why }
+ * /admin/orders/{id}/rto-received:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Undelivered parcel is back — order RETURNED, stock restored, online payment refunded
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: "{ orderId, status, refundStatus }" }
+ *       409: { description: Courier hasn't reported RTO/failure, or order not in transit }
+ * /admin/refunds:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Every refund with its order and gateway status, plus per-status totals
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: "{ items, page, limit, total, summary }" }
+ *   post:
+ *     tags: [Admin]
+ *     summary: Manual refund of an order's online payment — full (default) or partial
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       201: { description: "{ status, amount }" }
+ *       409: { description: No captured payment, or already fully refunded }
+ *       502: { description: Gateway rejected it — message says why }
+ */
+router.get('/returns', validate(listReturnsQuerySchema), returnsController.listForAdmin);
+router.get('/returns/:id', returnsController.getForAdmin);
+router.post('/returns/:id/approve', validate(approveReturnSchema), returnsController.approve);
+router.post('/returns/:id/reject', validate(rejectReturnSchema), returnsController.reject);
+router.post('/returns/:id/complete', validate(completeReturnSchema), returnsController.complete);
+router.get('/shipments', shippingController.listIssuesForAdmin);
 
 export default router;

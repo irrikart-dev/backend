@@ -28,6 +28,8 @@ const catalog = await import('../src/modules/catalog/catalog.service.js');
 const inventory = await import('../src/modules/inventory/inventory.service.js');
 const admin = await import('../src/modules/admin/admin.service.js');
 const reviews = await import('../src/modules/reviews/reviews.service.js');
+const returns = await import('../src/modules/returns/returns.service.js');
+const shipping = await import('../src/modules/shipping/shipping.service.js');
 const { renderInvoice } = await import('../src/modules/orders/orders.invoice.js');
 const { requirePermission } = await import('../src/common/middlewares/auth.js');
 
@@ -136,6 +138,7 @@ const cancelled = await orders.cancelOrderByCustomer(user.id, online.orderId, { 
 assert.equal(cancelled.status, 'CANCELLED');
 assert.equal(cancelled.refundStatus, 'processed');
 assert.equal(refunds.at(-1).amount, 4500 * 100);
+assert.deepEqual(cancelled.refunds.map((r) => [r.amount, r.status]), [[4500, 'processed']]);
 assert.equal((await variantRow(pricey.variantId)).stock, 5);
 await assert.rejects(orders.getOrderForInvoice(online.orderId, { userId: user.id }), /No invoice/);
 
@@ -190,6 +193,92 @@ const before = (await variantRow(cheap.variantId)).stock;
 assert.equal((await orders.rejectOrder(vendor.id, v2.orderId, { reason: 'out of stock' })).status, 'CANCELLED');
 assert.equal((await variantRow(cheap.variantId)).stock, before + 3);
 
+// ---- returns: one open request per order, COD refund is manual, full return → RETURNED ----
+assert.ok((await orders.getOrder(user.id, v1.orderId)).returnableUntil, 'delivered order has no return window');
+const ret = (orderId, extra = {}) => returns.requestReturn(user.id, { orderId, type: 'RETURN', reason: 'damaged', photoUrls: [], ...extra });
+await assert.rejects(ret(v1.orderId, { items: [{ orderItemId: v1Item.id, quantity: v1Item.quantity + 1 }] }), /can still be returned/);
+const rq = await ret(v1.orderId);
+await assert.rejects(ret(v1.orderId), /already in progress/);
+let shelf = (await variantRow(cheap.variantId)).stock;
+const rqDone = await returns.complete(rq.id, {});
+assert.deepEqual([rqDone.status, rqDone.refundStatus, rqDone.refundAmount], ['COMPLETED', 'manual', v1Item.totalPrice]);
+assert.equal((await variantRow(cheap.variantId)).stock, shelf + v1Item.quantity);
+assert.equal((await orders.getOrder(user.id, v1.orderId)).status, 'RETURNED');
+await assert.rejects(ret(v1.orderId), /Only a delivered order/);
+
+// ---- partial return of a couponed online order is refunded pro rata; then manual refunds ----
+async function deliveredOnline(lines, couponCode) {
+  for (const l of lines) await cart.addItem(user.id, l);
+  const placed = await orders.checkout(user, { addressId: address.id, couponCode });
+  await webhook('payment.captured', placed.providerOrderId, `pay_${placed.orderNumber}`);
+  await orders.acceptOrder(vendor.id, placed.orderId);
+  await orders.advanceOrderForVendor(vendor.id, placed.orderId, 'PACKED');
+  await orders.advanceOrderForVendor(vendor.id, placed.orderId, 'SHIPPED');
+  await orders.advanceOrderForAdmin(placed.orderId, 'DELIVERED');
+  return orders.getOrder(user.id, placed.orderId);
+}
+await prisma.coupon.create({ data: { code: `TEN${tag}`.toUpperCase(), type: 'PERCENT', value: 10 } });
+const mixed = await deliveredOnline(
+  [{ variantId: cheap.variantId, quantity: 2 }, { variantId: pricey.variantId, quantity: 1 }],
+  `TEN${tag}`
+);
+assert.equal(mixed.amount, 990);
+const priceyLine = mixed.items.find((i) => i.variantId === pricey.variantId);
+const partial = await ret(mixed.id, { type: 'RETURN', items: [{ orderItemId: priceyLine.id, quantity: 1 }] });
+assert.equal((await returns.getForAdmin(partial.id)).suggestedRefund, 810);
+await returns.approve(partial.id, { note: 'pickup booked' });
+const partialDone = await returns.complete(partial.id, { restock: false });
+assert.deepEqual([partialDone.refundAmount, partialDone.refundStatus], [810, 'processed']);
+assert.equal(refunds.at(-1).amount, 810 * 100);
+assert.equal((await orders.getOrder(user.id, mixed.id)).status, 'DELIVERED', 'partial return closed the order');
+
+await assert.rejects(payments.refundOrderByAdmin({ orderId: mixed.id, amount: 200, reason: 'goodwill' }), /Only ₹180/);
+assert.equal((await payments.refundOrderByAdmin({ orderId: mixed.id, amount: 80, reason: 'goodwill' })).amount, 80);
+// a refund made in the Razorpay dashboard arrives by webhook only, then settles
+const dashRefund = (event, status) =>
+  payments.handleWebhookEvent(Buffer.from('{}'), 'sig', {
+    event,
+    payload: {
+      refund: { entity: { id: `rfnd_dash_${tag}`, payment_id: `pay_${mixed.orderNumber}`, amount: 5000, status } },
+      payment: { entity: { id: `pay_${mixed.orderNumber}`, order_id: 'x' } },
+    },
+  });
+await dashRefund('refund.created', 'pending');
+await dashRefund('refund.processed', 'processed');
+const refundList = await payments.listRefundsForAdmin({ search: mixed.orderNumber, page: 1, limit: 10 });
+assert.deepEqual(refundList.items.map((r) => [r.amount, r.status]).sort(), [[50, 'processed'], [80, 'processed'], [810, 'processed']]);
+assert.equal((await payments.refundOrderByAdmin({ orderId: mixed.id, reason: 'close out' })).amount, 50);
+await assert.rejects(payments.refundOrderByAdmin({ orderId: mixed.id, reason: 'again' }), /refunded in full/);
+await assert.rejects(returns.reject(partial.id, { note: 'too late' }), /already completed/);
+
+// ---- courier feed moves the order; return window closes ----
+await cart.addItem(user.id, { variantId: cheap.variantId, quantity: 1 });
+const fed = await orders.checkout(user, { addressId: address.id, paymentMethod: 'COD' });
+await prisma.shipment.create({ data: { orderId: fed.orderId, shiprocketShipmentId: `sr_fed_${tag}` } });
+await shipping.recordWebhookEvent({ shipment_id: `sr_fed_${tag}`, current_status: 'IN TRANSIT' });
+let fedOrder = await orders.getOrderForAdmin(fed.orderId);
+assert.deepEqual([fedOrder.status, fedOrder.accepted], ['SHIPPED', true]);
+await shipping.recordWebhookEvent({ shipment_id: `sr_fed_${tag}`, current_status: 'DELIVERED' });
+fedOrder = await orders.getOrderForAdmin(fed.orderId);
+assert.equal(fedOrder.status, 'DELIVERED');
+assert.ok(fedOrder.deliveredAt);
+await prisma.order.update({ where: { id: fed.orderId }, data: { deliveredAt: new Date(Date.now() - 30 * 86400_000) } });
+await assert.rejects(ret(fed.orderId), /within 7 days/);
+
+// ---- RTO: parcel comes back undelivered — order RETURNED, restocked, online payment refunded ----
+await cart.addItem(user.id, { variantId: cheap.variantId, quantity: 2 });
+const rto = await orders.checkout(user, { addressId: address.id });
+await webhook('payment.captured', rto.providerOrderId, `pay_rto_${tag}`);
+await assert.rejects(returns.receiveRto(rto.orderId), /not reported/);
+await prisma.shipment.create({ data: { orderId: rto.orderId, shiprocketShipmentId: `sr_rto_${tag}` } });
+await shipping.recordWebhookEvent({ shipment_id: `sr_rto_${tag}`, current_status: 'RTO' });
+assert.ok((await shipping.listIssuesForAdmin()).shipments.some((x) => x.order.id === rto.orderId));
+shelf = (await variantRow(cheap.variantId)).stock;
+assert.deepEqual(await returns.receiveRto(rto.orderId), { orderId: rto.orderId, status: 'RETURNED', refundStatus: 'processed' });
+assert.equal(refunds.at(-1).amount, 200 * 100);
+assert.equal((await variantRow(cheap.variantId)).stock, shelf + 2);
+await assert.rejects(returns.receiveRto(rto.orderId), /can't be marked/);
+
 // ---- reorder ----
 const re = await orders.reorder(user.id, v2.orderId);
 assert.equal(re.cart.itemCount, 3);
@@ -197,7 +286,7 @@ await cart.clearCart(user.id);
 
 // ---- admin console ----
 const adminList = await orders.listOrdersForAdmin({ page: 1, limit: 50, search: user.email });
-assert.equal(adminList.total, 6);
+assert.equal(adminList.total, 9);
 const detail = await orders.getOrderForAdmin(online.orderId);
 assert.equal(detail.payments[0].refunds.length, 1);
 const recon = await payments.listPaymentsForAdmin({ page: 1, limit: 50, search: online.orderNumber });

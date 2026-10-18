@@ -14,6 +14,7 @@ const orderItemInclude = {
     },
   },
   address: true,
+  refunds: { orderBy: { createdAt: 'asc' } },
   ...latestPayment,
 };
 

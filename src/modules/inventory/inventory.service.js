@@ -72,6 +72,12 @@ export async function restockCancelledStock(tx, variantId, quantity, orderId) {
   );
 }
 
+// goods came back from a delivered order (customer return, or a courier RTO)
+export async function restockReturnedStock(tx, variantId, quantity, ref) {
+  await repository.restock(variantId, quantity, tx);
+  await repository.createLedgerEntry({ variantId, changeQty: quantity, reason: 'return', ...ref }, tx);
+}
+
 // order placed, not yet paid — hold the stock so nobody else can buy it out from under this order
 export async function reserveStock(tx, variantId, quantity, orderId) {
   const affected = await repository.reserveStock(variantId, quantity, tx);

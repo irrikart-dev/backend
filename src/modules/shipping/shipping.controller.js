@@ -11,3 +11,15 @@ export const handleWebhook = asyncHandler(async (req, res) => {
   await service.recordWebhookEvent(req.body);
   res.json({ success: true });
 });
+
+// ---- admin (mounted under admin.routes.js) ----
+
+export const listIssuesForAdmin = asyncHandler(async (req, res) => {
+  const data = await service.listIssuesForAdmin();
+  res.json({ success: true, data });
+});
+
+export const bookForAdmin = asyncHandler(async (req, res) => {
+  const data = await service.bookShipmentForAdmin(req.params.id);
+  res.json({ success: true, data });
+});
