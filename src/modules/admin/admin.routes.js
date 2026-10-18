@@ -9,6 +9,7 @@ import * as rfqController from '../rfq/rfq.controller.js';
 import * as reviewsController from '../reviews/reviews.controller.js';
 import * as returnsController from '../returns/returns.controller.js';
 import * as shippingController from '../shipping/shipping.controller.js';
+import * as notificationsController from '../notifications/notifications.controller.js';
 import { authenticate, loadUser, authorize, requirePermission } from '../../common/middlewares/auth.js';
 import { validate } from '../../common/middlewares/validate.js';
 import { imageUpload } from '../../common/middlewares/upload.js';
@@ -46,6 +47,7 @@ import {
   completeReturnSchema,
 } from '../returns/returns.validation.js';
 import { listRefundsQuerySchema, manualRefundSchema } from '../payments/payments.validation.js';
+import { campaignSchema } from '../notifications/notifications.validation.js';
 import { cancelOrderSchema } from '../orders/orders.validation.js';
 import { createVendorSchema, updateVendorSchema } from '../vendors/vendors.validation.js';
 
@@ -70,7 +72,7 @@ router.use('/inventory', inventory);
 router.use(['/orders', '/rfq', '/returns', '/shipments'], requirePermission('orders'));
 router.use(['/payments', '/refunds'], requirePermission('payments'));
 router.use('/vendors', requirePermission('vendors'));
-router.use(['/staff', '/customers', '/coupons'], authorize('ADMIN'));
+router.use(['/staff', '/customers', '/coupons', '/notifications'], authorize('ADMIN'));
 
 /**
  * @openapi
@@ -476,5 +478,24 @@ router.post('/returns/:id/approve', validate(approveReturnSchema), returnsContro
 router.post('/returns/:id/reject', validate(rejectReturnSchema), returnsController.reject);
 router.post('/returns/:id/complete', validate(completeReturnSchema), returnsController.complete);
 router.get('/shipments', shippingController.listIssuesForAdmin);
+
+/**
+ * @openapi
+ * /admin/notifications/campaigns:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Past broadcasts with recipient and push delivery counts (ADMIN only)
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Campaigns, newest first }
+ *   post:
+ *     tags: [Admin]
+ *     summary: Broadcast to every active customer — in-app notification plus push (ADMIN only)
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       201: { description: Campaign with delivery counts }
+ */
+router.get('/notifications/campaigns', notificationsController.listCampaigns);
+router.post('/notifications/campaigns', validate(campaignSchema), notificationsController.sendCampaign);
 
 export default router;

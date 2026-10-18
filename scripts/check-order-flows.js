@@ -30,6 +30,8 @@ const admin = await import('../src/modules/admin/admin.service.js');
 const reviews = await import('../src/modules/reviews/reviews.service.js');
 const returns = await import('../src/modules/returns/returns.service.js');
 const shipping = await import('../src/modules/shipping/shipping.service.js');
+const notifications = await import('../src/modules/notifications/notifications.service.js');
+const { push } = await import('../src/modules/notifications/channels/push.channel.js');
 const { renderInvoice } = await import('../src/modules/orders/orders.invoice.js');
 const { requirePermission } = await import('../src/common/middlewares/auth.js');
 
@@ -46,6 +48,13 @@ Object.assign(paymentProvider, {
   },
   verifyWebhookSignature: () => true,
 });
+// ---- push stub: tokens starting "dead" come back as uninstalled ----
+const pushes = [];
+push.sendToTokens = async (tokens, message) => {
+  pushes.push({ tokens, message });
+  const deadTokens = tokens.filter((t) => t.startsWith('dead'));
+  return { sent: tokens.length - deadTokens.length, failed: deadTokens.length, deadTokens };
+};
 const webhook = (event, providerOrderId, paymentId) =>
   payments.handleWebhookEvent(Buffer.from('{}'), 'sig', {
     event,
@@ -284,9 +293,36 @@ const re = await orders.reorder(user.id, v2.orderId);
 assert.equal(re.cart.itemCount, 3);
 await cart.clearCart(user.id);
 
+// ---- notifications: lifecycle events land in the centre and on every device; dead tokens pruned ----
+const liveToken = `live-token-${tag}-0123456789`;
+const deadToken = `dead-token-${tag}-0123456789`;
+await notifications.registerDevice(user.id, { fcmToken: liveToken, platform: 'android' });
+await notifications.registerDevice(user.id, { fcmToken: deadToken, platform: 'ios' });
+await cart.addItem(user.id, { variantId: cheap.variantId, quantity: 1 });
+const notified = await orders.checkout(user, { addressId: address.id, paymentMethod: 'COD' });
+const confirmPush = pushes.at(-1);
+assert.deepEqual(confirmPush.tokens.sort(), [deadToken, liveToken].sort());
+assert.equal(confirmPush.message.data.orderId, notified.orderId);
+assert.equal(confirmPush.message.data.type, 'ORDER_CONFIRMED');
+assert.equal(await prisma.deviceToken.count({ where: { fcmToken: deadToken } }), 0, 'dead token kept');
+await orders.cancelOrderByAdmin(notified.orderId, { reason: 'seller out of stock' });
+assert.match(pushes.at(-1).message.body, /cancelled by IrriKart/);
+const centre = await notifications.listMine(user.id, { page: 1, limit: 5 });
+assert.deepEqual(centre.items.slice(0, 2).map((n) => n.type), ['ORDER_CANCELLED', 'ORDER_CONFIRMED']);
+assert.ok(centre.unread >= 2);
+await notifications.markRead(user.id, centre.items[0].id);
+assert.equal((await notifications.listMine(user.id, { page: 1, limit: 5 })).unread, centre.unread - 1);
+await notifications.markAllRead(user.id);
+assert.equal((await notifications.listMine(user.id, { page: 1, limit: 1 })).unread, 0);
+await assert.rejects(notifications.markRead(ownerUser.id, centre.items[0].id), /not found/i);
+const campaign = await notifications.sendCampaign({ title: 'Monsoon sale', body: '10% off drip kits', link: '/c/drip' }, ownerUser.id);
+assert.ok(campaign.recipients >= 1 && campaign.pushSent >= 1);
+assert.equal((await notifications.listMine(user.id, { page: 1, limit: 1 })).items[0].type, 'CAMPAIGN');
+await notifications.removeDevice(user.id, { fcmToken: liveToken });
+
 // ---- admin console ----
 const adminList = await orders.listOrdersForAdmin({ page: 1, limit: 50, search: user.email });
-assert.equal(adminList.total, 9);
+assert.equal(adminList.total, 10);
 const detail = await orders.getOrderForAdmin(online.orderId);
 assert.equal(detail.payments[0].refunds.length, 1);
 const recon = await payments.listPaymentsForAdmin({ page: 1, limit: 50, search: online.orderNumber });

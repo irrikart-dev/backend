@@ -1,6 +1,7 @@
 import repository from './shipping.repository.js';
 import * as provider from './providers/shiprocket.provider.js';
 import env from '../../config/env.js';
+import * as notifications from '../notifications/notifications.service.js';
 import logger from '../../common/utils/logger.js';
 import { AppError, ConflictError, NotFoundError } from '../../common/errors/AppError.js';
 
@@ -114,8 +115,8 @@ export async function bookShipmentForAdmin(orderId) {
 
 // courier status → the order status it implies; only ever moves an order forward
 const ORDER_FROM_COURIER = {
-  IN_TRANSIT: { from: ['CONFIRMED', 'PACKED'], to: 'SHIPPED' },
-  DELIVERED: { from: ['CONFIRMED', 'PACKED', 'SHIPPED'], to: 'DELIVERED' },
+  IN_TRANSIT: { from: ['CONFIRMED', 'PACKED'], to: 'SHIPPED', event: 'ORDER_SHIPPED' },
+  DELIVERED: { from: ['CONFIRMED', 'PACKED', 'SHIPPED'], to: 'DELIVERED', event: 'ORDER_DELIVERED' },
 };
 
 export async function recordWebhookEvent(payload) {
@@ -147,12 +148,13 @@ export async function recordWebhookEvent(payload) {
   const move = ORDER_FROM_COURIER[mapped];
   if (move) {
     const now = new Date();
-    await repository.advanceOrder(shipment.orderId, move.from, {
+    const { count } = await repository.advanceOrder(shipment.orderId, move.from, {
       status: move.to,
       ...(move.to === 'DELIVERED' ? { deliveredAt: now } : {}),
     });
     // a parcel on the move was obviously accepted, even if the vendor never clicked it
     await repository.markAcceptedIfUnset(shipment.orderId, now);
+    if (count) await notifications.notifyOrderEvent(shipment.orderId, move.event);
   }
 }
 

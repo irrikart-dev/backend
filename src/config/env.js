@@ -43,6 +43,9 @@ export default {
   MSG91_EMAIL_DOMAIN: process.env.MSG91_EMAIL_DOMAIN,
   // sender address — must sit on MSG91_EMAIL_DOMAIN
   MSG91_EMAIL_FROM: process.env.MSG91_EMAIL_FROM || `no-reply@${process.env.MSG91_EMAIL_DOMAIN}`,
+  // generic MSG91 template for order/return/refund emails — vars: name, title, body, order_number.
+  // Unset = push and in-app notifications only.
+  MSG91_TEMPLATE_TRANSACTIONAL: process.env.MSG91_TEMPLATE_TRANSACTIONAL,
 
   STORAGE_PROVIDER: process.env.STORAGE_PROVIDER || 'supabase',
 

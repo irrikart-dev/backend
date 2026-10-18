@@ -7,6 +7,7 @@ import cartRepository from '../cart/cart.repository.js';
 import * as inventory from '../inventory/inventory.service.js';
 import * as shipping from '../shipping/shipping.service.js';
 import * as vendorsService from '../vendors/vendors.service.js';
+import * as notifications from '../notifications/notifications.service.js';
 import logger from '../../common/utils/logger.js';
 import { AppError, BadRequestError, ConflictError, NotFoundError } from '../../common/errors/AppError.js';
 
@@ -158,6 +159,7 @@ async function captureOrder(payment, entity) {
   // confirmation above. Each logs and swallows its own failures.
   void shipping.createShipmentForOrder(payment.orderId);
   await transferToVendor(payment, entity);
+  await notifications.notifyOrderEvent(payment.orderId, 'ORDER_CONFIRMED');
 }
 
 // splits the vendor's cut to their Razorpay Route account. Deliberately outside the
@@ -257,7 +259,12 @@ export async function refundOrderByAdmin({ orderId, amount, reason }) {
 async function recordRefundEvent(entity) {
   const existing = await repository.findRefundByProviderId(entity.id);
   if (existing) {
-    if (entity.status && existing.status !== entity.status) await repository.updateRefundStatus(existing.id, entity.status);
+    if (entity.status && existing.status !== entity.status) {
+      await repository.updateRefundStatus(existing.id, entity.status);
+      if (entity.status === 'processed') {
+        await notifications.notifyOrderEvent(existing.orderId, 'REFUND_PROCESSED', { amount: Number(existing.amount) });
+      }
+    }
     return;
   }
   const payment = entity.payment_id ? await repository.findByProviderPaymentId(entity.payment_id) : null;

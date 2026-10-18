@@ -12,6 +12,7 @@ import { isProductSellable } from '../catalog/catalog.service.js';
 import * as shipping from '../shipping/shipping.service.js';
 import * as vendorsService from '../vendors/vendors.service.js';
 import * as returns from '../returns/returns.service.js';
+import * as notifications from '../notifications/notifications.service.js';
 import logger from '../../common/utils/logger.js';
 import { BadRequestError, ConflictError, NotFoundError } from '../../common/errors/AppError.js';
 
@@ -180,6 +181,7 @@ async function placeCodOrder(orderFields, coupon) {
   });
 
   void shipping.createShipmentForOrder(order.id);
+  await notifications.notifyOrderEvent(order.id, 'ORDER_CONFIRMED');
 
   return {
     orderId: order.id,
@@ -243,6 +245,7 @@ async function cancel(order, { by, reason }) {
 
   const refund =
     stockCommitted && order.paymentMethod === 'ONLINE' ? await payments.refundOrder(order.id, { reason }) : null;
+  await notifications.notifyOrderEvent(order.id, 'ORDER_CANCELLED', { refund });
   return { refundStatus: refund?.status ?? null };
 }
 
@@ -304,7 +307,11 @@ async function advance(order, target, extra = {}) {
   const delivered = target === 'DELIVERED' ? { deliveredAt: new Date() } : {};
   const { count } = await repository.transition(order.id, order.status, { status: target, ...delivered, ...extra });
   if (count === 0) throw new ConflictError('This order was just updated — refresh and try again');
+  if (CUSTOMER_EVENT[target]) await notifications.notifyOrderEvent(order.id, CUSTOMER_EVENT[target]);
 }
+
+// steps worth telling the customer about — packing is internal
+const CUSTOMER_EVENT = { SHIPPED: 'ORDER_SHIPPED', DELIVERED: 'ORDER_DELIVERED' };
 
 export async function acceptOrder(vendorId, orderId) {
   const order = await repository.findByIdForVendor(orderId, vendorId);

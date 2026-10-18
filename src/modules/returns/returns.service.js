@@ -4,6 +4,7 @@ import { prisma } from '../../config/db.js';
 import * as inventory from '../inventory/inventory.service.js';
 import * as payments from '../payments/payments.service.js';
 import { uploadImage } from '../admin/admin.service.js';
+import * as notifications from '../notifications/notifications.service.js';
 import { BadRequestError, ConflictError, NotFoundError } from '../../common/errors/AppError.js';
 
 // A return is one request per order covering some or all of its lines.
@@ -166,22 +167,23 @@ export async function getForAdmin(id) {
   return toAdminDto(row, { suggestedRefund: row.type === 'RETURN' ? proRataRefund(order, row.items) : 0 });
 }
 
-async function decide(id, fromStatuses, data) {
+async function decide(id, fromStatuses, data, event) {
   const row = await findOrThrow(id);
   if (!fromStatuses.includes(row.status)) {
     throw new ConflictError(`This return is already ${row.status.toLowerCase()}`);
   }
   const { count } = await repository.transition(id, fromStatuses, data);
   if (count === 0) throw new ConflictError('This return was just updated — refresh and try again');
+  await notifications.notifyOrderEvent(row.orderId, event, { note: data.adminNote });
   return getForAdmin(id);
 }
 
 export function approve(id, { note }) {
-  return decide(id, ['REQUESTED'], { status: 'APPROVED', ...(note ? { adminNote: note } : {}) });
+  return decide(id, ['REQUESTED'], { status: 'APPROVED', ...(note ? { adminNote: note } : {}) }, 'RETURN_APPROVED');
 }
 
 export function reject(id, { note }) {
-  return decide(id, OPEN, { status: 'REJECTED', adminNote: note, resolvedAt: new Date() });
+  return decide(id, OPEN, { status: 'REJECTED', adminNote: note, resolvedAt: new Date() }, 'RETURN_REJECTED');
 }
 
 /**
@@ -229,6 +231,7 @@ export async function complete(id, { restock = true, refundAmount, note }) {
     else refundStatus = (await payments.refundOrder(order.id, { reason: `Return: ${row.reason}`, amount }))?.status ?? 'failed';
     await repository.update(id, { refundAmount: amount, refundStatus });
   }
+  await notifications.notifyOrderEvent(order.id, 'RETURN_COMPLETED', { refund: { amount, status: refundStatus } });
   return getForAdmin(id);
 }
 
@@ -258,5 +261,6 @@ export async function receiveRto(orderId) {
     order.paymentMethod === 'ONLINE'
       ? await payments.refundOrder(orderId, { reason: 'Returned to origin — not delivered' })
       : null;
+  await notifications.notifyOrderEvent(orderId, 'ORDER_RETURNED', { refund });
   return { orderId, status: 'RETURNED', refundStatus: refund?.status ?? null };
 }

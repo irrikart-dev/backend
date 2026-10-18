@@ -701,10 +701,30 @@ model Notification {
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   title     String
   body      String
+  // ORDER_CONFIRMED, ORDER_SHIPPED, RETURN_APPROVED, CAMPAIGN, ...
   type      String
+  // deep-link payload for the app, e.g. { orderId } — also sent as the push's data
+  data      Json?
   readAt    DateTime?
   createdAt DateTime  @default(now())
 
   // notification center: unread-first, newest-first, for one user
   @@index([userId, readAt, createdAt])
+}
+
+// an admin broadcast to every active customer — one Notification row per customer,
+// plus a push to each of their devices
+model NotificationCampaign {
+  id         String   @id @default(cuid())
+  title      String
+  body       String
+  // where the notification opens in the app, e.g. a product or category link
+  link       String?
+  recipients Int      @default(0)
+  pushSent   Int      @default(0)
+  pushFailed Int      @default(0)
+  sentById   String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
 }
