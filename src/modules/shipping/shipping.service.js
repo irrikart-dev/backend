@@ -89,7 +89,14 @@ async function bookShipment(orderId) {
   const { data } = await provider.createOrder(payload);
   const shiprocketShipmentId = String(data.shipment_id);
 
-  const shipment = await repository.create({ orderId, shiprocketShipmentId });
+  let shipment;
+  try {
+    shipment = await repository.create({ orderId, shiprocketShipmentId });
+  } catch (err) {
+    // a concurrent booking (confirmation's background call vs an admin retry) won the row
+    if (err?.code === 'P2002') return;
+    throw err;
+  }
 
   try {
     const awbResult = await provider.assignAwb(shiprocketShipmentId);
@@ -121,7 +128,7 @@ const ORDER_FROM_COURIER = {
   DELIVERED: { from: ['CONFIRMED', 'PACKED', 'SHIPPED'], to: 'DELIVERED', event: 'ORDER_DELIVERED' },
 };
 
-export async function recordWebhookEvent(payload) {
+export async function recordWebhookEvent(payload, { verified = true } = {}) {
   const shiprocketShipmentId = payload?.shipment_id ? String(payload.shipment_id) : null;
   const awbNumber = payload?.awb ? String(payload.awb) : null;
   const rawStatus = (payload?.current_status || payload?.status || '').toUpperCase();
@@ -147,7 +154,7 @@ export async function recordWebhookEvent(payload) {
   if (!mapped) return;
   await repository.updateStatus(shipment.id, mapped);
 
-  const move = ORDER_FROM_COURIER[mapped];
+  const move = verified ? ORDER_FROM_COURIER[mapped] : null;
   if (move) {
     const now = new Date();
     const { count } = await repository.advanceOrder(shipment.orderId, move.from, {

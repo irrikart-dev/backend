@@ -262,11 +262,18 @@ assert.deepEqual(refundList.items.map((r) => [r.amount, r.status]).sort(), [[50,
 assert.equal((await payments.refundOrderByAdmin({ orderId: mixed.id, reason: 'close out' })).amount, 50);
 await assert.rejects(payments.refundOrderByAdmin({ orderId: mixed.id, reason: 'again' }), /refunded in full/);
 await assert.rejects(returns.reject(partial.id, { note: 'too late' }), /already completed/);
+// already refunded in full by hand: returning the rest refunds nothing more, and says so
+const rest = await returns.complete((await ret(mixed.id)).id, {});
+assert.deepEqual([rest.refundAmount, rest.refundStatus], [0, 'none']);
+assert.equal((await orders.getOrder(user.id, mixed.id)).status, 'RETURNED');
 
 // ---- courier feed moves the order; return window closes ----
 await cart.addItem(user.id, { variantId: cheap.variantId, quantity: 1 });
 const fed = await orders.checkout(user, { addressId: address.id, paymentMethod: 'COD' });
 await prisma.shipment.create({ data: { orderId: fed.orderId, shiprocketShipmentId: `sr_fed_${tag}` } });
+// an unverified webhook (no SHIPROCKET_WEBHOOK_TOKEN) records tracking but never moves the order
+await shipping.recordWebhookEvent({ shipment_id: `sr_fed_${tag}`, current_status: 'DELIVERED' }, { verified: false });
+assert.equal((await orders.getOrderForAdmin(fed.orderId)).status, 'CONFIRMED');
 await shipping.recordWebhookEvent({ shipment_id: `sr_fed_${tag}`, current_status: 'IN TRANSIT' });
 let fedOrder = await orders.getOrderForAdmin(fed.orderId);
 assert.deepEqual([fedOrder.status, fedOrder.accepted], ['SHIPPED', true]);

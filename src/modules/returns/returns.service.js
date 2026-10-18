@@ -23,11 +23,16 @@ export function returnableUntil(order) {
   return new Date(from.getTime() + env.RETURN_WINDOW_DAYS * DAY_MS);
 }
 
-// units of each order line already claimed by a return that wasn't rejected
+// units of each order line already claimed: by an open request, or by a completed
+// RETURN. A completed replacement hands the customer a new unit, which can be returned
+// again — so it no longer claims anything.
 function claimedQuantities(order, { onlyCompletedReturns = false } = {}) {
   const claimed = new Map();
   for (const r of order.returns) {
-    if (onlyCompletedReturns ? r.status !== 'COMPLETED' || r.type !== 'RETURN' : r.status === 'REJECTED') continue;
+    const counts = onlyCompletedReturns
+      ? r.status === 'COMPLETED' && r.type === 'RETURN'
+      : OPEN.includes(r.status) || (r.status === 'COMPLETED' && r.type === 'RETURN');
+    if (!counts) continue;
     for (const i of r.items) claimed.set(i.orderItemId, (claimed.get(i.orderItemId) ?? 0) + i.quantity);
   }
   return claimed;
@@ -225,13 +230,17 @@ export async function complete(id, { restock = true, refundAmount, note }) {
     }
   });
 
-  let refundStatus = null;
+  let refund = null;
   if (amount > 0) {
-    if (order.paymentMethod === 'COD') refundStatus = 'manual';
-    else refundStatus = (await payments.refundOrder(order.id, { reason: `Return: ${row.reason}`, amount }))?.status ?? 'failed';
-    await repository.update(id, { refundAmount: amount, refundStatus });
+    // refundOrder caps at what's still refundable (an earlier manual refund may have
+    // covered some of it) — record what actually went back, not what was asked for
+    refund =
+      order.paymentMethod === 'COD'
+        ? { status: 'manual', amount }
+        : ((await payments.refundOrder(order.id, { reason: `Return: ${row.reason}`, amount })) ?? { status: 'failed', amount });
+    await repository.update(id, { refundAmount: refund.amount, refundStatus: refund.status });
   }
-  await notifications.notifyOrderEvent(order.id, 'RETURN_COMPLETED', { refund: { amount, status: refundStatus } });
+  await notifications.notifyOrderEvent(order.id, 'RETURN_COMPLETED', { refund });
   return getForAdmin(id);
 }
 

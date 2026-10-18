@@ -204,13 +204,21 @@ async function failOrder(payment, entity) {
  * reverse_all pulls back the vendor's Route transfer (pro rata on a partial refund).
  */
 export async function refundPayment(payment, { reason, amount = Number(payment.amount) }) {
+  let refund;
   try {
-    const refund = await paymentProvider.refund(payment.providerPaymentId, {
+    refund = await paymentProvider.refund(payment.providerPaymentId, {
       amount: Math.round(amount * 100),
       notes: { reason: reason.slice(0, 250) },
       ...(payment.transferId ? { reverse_all: 1 } : {}),
     });
-    const status = refund.status ?? 'pending';
+  } catch (err) {
+    logger.error({ err, paymentId: payment.id, orderId: payment.orderId }, 'refund failed');
+    return { status: 'failed', amount, error: err?.error?.description || err?.message || 'Unknown gateway error' };
+  }
+
+  // the money has left from here on — never report 'failed', or a retry refunds twice
+  const status = refund.status ?? 'pending';
+  try {
     await repository.createRefund({
       paymentId: payment.id,
       orderId: payment.orderId,
@@ -219,11 +227,14 @@ export async function refundPayment(payment, { reason, amount = Number(payment.a
       amount,
       reason: reason.slice(0, 250),
     });
-    return { status, amount };
   } catch (err) {
-    logger.error({ err, paymentId: payment.id, orderId: payment.orderId }, 'refund failed');
-    return { status: 'failed', amount, error: err?.error?.description || err?.message || 'Unknown gateway error' };
+    // the refund.created webhook beat us to the row — keep it, just give it the real reason
+    if (err?.code === 'P2002') await repository.setRefundReason(refund.id, reason.slice(0, 250));
+    // otherwise the webhook records it later (recordRefundEvent) — until then it's missing
+    // from refundable(), so flag it loudly
+    else logger.error({ err, refundId: refund.id, orderId: payment.orderId }, 'refund sent but not recorded');
   }
+  return { status, amount };
 }
 
 // what's left to give back: the payment minus every refund that didn't fail

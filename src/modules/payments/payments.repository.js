@@ -65,6 +65,10 @@ export default {
     return prisma.refund.findUnique({ where: { razorpayRefundId } });
   },
 
+  setRefundReason(razorpayRefundId, reason) {
+    return prisma.refund.update({ where: { razorpayRefundId }, data: { reason } });
+  },
+
   updateRefundStatus(id, status) {
     return prisma.refund.update({ where: { id }, data: { status } });
   },

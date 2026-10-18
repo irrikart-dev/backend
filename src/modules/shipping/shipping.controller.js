@@ -8,7 +8,9 @@ export const handleWebhook = asyncHandler(async (req, res) => {
     const token = req.header('x-api-key');
     if (token !== env.SHIPROCKET_WEBHOOK_TOKEN) throw new UnauthorizedError('Invalid webhook token');
   }
-  await service.recordWebhookEvent(req.body);
+  // unverified callers can only add tracking events, never move an order — anyone who
+  // knows an AWB could otherwise mark it delivered and open its return window
+  await service.recordWebhookEvent(req.body, { verified: Boolean(env.SHIPROCKET_WEBHOOK_TOKEN) });
   res.json({ success: true });
 });
 
