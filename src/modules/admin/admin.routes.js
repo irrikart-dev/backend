@@ -45,6 +45,7 @@ import {
   rejectReturnSchema,
   completeReturnSchema,
 } from '../returns/returns.validation.js';
+import { listRefundsQuerySchema, manualRefundSchema } from '../payments/payments.validation.js';
 import { campaignSchema } from '../notifications/notifications.validation.js';
 import { cancelOrderSchema } from '../orders/orders.validation.js';
 import { createVendorSchema, updateVendorSchema } from '../vendors/vendors.validation.js';
@@ -68,7 +69,7 @@ router.use('/stats', catalogOrInventory);
 router.use(['/uploads', '/categories', '/brands', '/banners', '/reviews'], catalog);
 router.use('/inventory', inventory);
 router.use(['/orders', '/rfq', '/returns'], requirePermission('orders'));
-router.use('/payments', requirePermission('payments'));
+router.use(['/payments', '/refunds'], requirePermission('payments'));
 router.use('/vendors', requirePermission('vendors'));
 router.use(['/staff', '/customers', '/coupons', '/notifications'], authorize('ADMIN'));
 
@@ -222,6 +223,31 @@ router.get('/orders/:id/invoice', ordersController.getInvoiceForAdmin);
  *       200: { description: "{ items, page, limit, total, summary }" }
  */
 router.get('/payments', validate(listPaymentsQuerySchema), paymentsController.listForAdmin);
+
+/**
+ * @openapi
+ * /admin/refunds:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Every refund with its order and gateway status, plus per-status totals
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: "{ items, page, limit, total, summary }" }
+ *   post:
+ *     tags: [Admin]
+ *     summary: Manual refund of an order's online payment — full (default) or partial
+ *     description: >
+ *       Body `{ orderId, amount?, reason }`. `amount` is whole rupees and capped at what
+ *       is still refundable; omit it to refund everything left.
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       201: { description: "{ status, amount }" }
+ *       400: { description: More than is left to refund }
+ *       409: { description: No captured payment, or already fully refunded }
+ *       502: { description: Gateway rejected it — message says why }
+ */
+router.get('/refunds', validate(listRefundsQuerySchema), paymentsController.listRefundsForAdmin);
+router.post('/refunds', validate(manualRefundSchema), paymentsController.refundForAdmin);
 
 /**
  * @openapi
@@ -399,7 +425,7 @@ router.patch('/reviews/:id', validate(reviewStatusSchema), reviewsController.set
  * /admin/returns/{id}:
  *   get:
  *     tags: [Admin]
- *     summary: One return request
+ *     summary: One return request, with the pro-rata `suggestedRefund`
  *     security: [{ bearerAuth: [] }]
  *     responses:
  *       200: { description: Return request }
@@ -420,13 +446,13 @@ router.patch('/reviews/:id', validate(reviewStatusSchema), reviewsController.set
  * /admin/returns/{id}/complete:
  *   post:
  *     tags: [Admin]
- *     summary: Goods received — restock the items (default) and close the request
+ *     summary: Goods received — restock (default) and refund (pro-rata unless `refundAmount` is given)
  *     description: >
- *       The order becomes RETURNED once every unit on it is back. No refund is issued
- *       here — staff settle it outside the app.
+ *       The order becomes RETURNED once every unit on it is back. COD refunds are
+ *       recorded as `manual` — pay them back outside the gateway.
  *     security: [{ bearerAuth: [] }]
  *     responses:
- *       200: { description: Return request }
+ *       200: { description: Return request, with refundStatus }
  */
 router.get('/returns', validate(listReturnsQuerySchema), returnsController.listForAdmin);
 router.get('/returns/:id', returnsController.getForAdmin);

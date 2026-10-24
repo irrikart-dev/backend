@@ -32,6 +32,7 @@ export async function adjustStock(variantId, { delta, note }, userId) {
   await prisma.$transaction(async (tx) => {
     const variant = await tx.productVariant.findUnique({ where: { id: variantId } });
     if (!variant) throw new NotFoundError('Variant not found');
+    await assertNotPack(tx, variantId);
     const affected = await repository.adjust(variantId, delta, tx);
     if (affected === 0) {
       throw new BadRequestError(
@@ -52,6 +53,7 @@ export async function setStockLevel(variantId, stock) {
   await prisma.$transaction(async (tx) => {
     const variant = await repository.lockVariant(variantId, tx);
     if (!variant) throw new NotFoundError('Variant not found');
+    await assertNotPack(tx, variantId);
     // units held by unpaid orders can't be taken away from under them
     if (stock < variant.reserved) {
       throw new BadRequestError(`${variant.reserved} unit(s) are reserved by pending orders — stock can't go below that`);
@@ -63,8 +65,22 @@ export async function setStockLevel(variantId, stock) {
   });
 }
 
+// A pack variant (a dozen, a carton) keeps no stock of its own: moving N packs moves
+// N × unitsPerPack units of the variant it packs. Every order-driven stock move goes
+// through this, so the ledger always records base units on the base variant.
+async function stockTarget(tx, variantId, quantity) {
+  const v = await tx.productVariant.findUnique({ where: { id: variantId }, select: { packOfId: true, unitsPerPack: true } });
+  return v?.packOfId ? [v.packOfId, quantity * v.unitsPerPack] : [variantId, quantity];
+}
+
+async function assertNotPack(tx, variantId) {
+  const v = await tx.productVariant.findUnique({ where: { id: variantId }, select: { packOfId: true } });
+  if (v?.packOfId) throw new BadRequestError('A pack has no stock of its own — adjust the variant it packs');
+}
+
 // a paid (stock-committed) order was cancelled — put its units back
-export async function restockCancelledStock(tx, variantId, quantity, orderId) {
+export async function restockCancelledStock(tx, packVariantId, packQuantity, orderId) {
+  const [variantId, quantity] = await stockTarget(tx, packVariantId, packQuantity);
   await repository.restock(variantId, quantity, tx);
   await repository.createLedgerEntry(
     { variantId, changeQty: quantity, reason: 'cancel', refType: 'order', refId: orderId },
@@ -73,13 +89,15 @@ export async function restockCancelledStock(tx, variantId, quantity, orderId) {
 }
 
 // goods came back from a delivered order (customer return, or a courier RTO)
-export async function restockReturnedStock(tx, variantId, quantity, ref) {
+export async function restockReturnedStock(tx, packVariantId, packQuantity, ref) {
+  const [variantId, quantity] = await stockTarget(tx, packVariantId, packQuantity);
   await repository.restock(variantId, quantity, tx);
   await repository.createLedgerEntry({ variantId, changeQty: quantity, reason: 'return', ...ref }, tx);
 }
 
 // order placed, not yet paid — hold the stock so nobody else can buy it out from under this order
-export async function reserveStock(tx, variantId, quantity, orderId) {
+export async function reserveStock(tx, packVariantId, packQuantity, orderId) {
+  const [variantId, quantity] = await stockTarget(tx, packVariantId, packQuantity);
   const affected = await repository.reserveStock(variantId, quantity, tx);
   if (affected === 0) throw new ConflictError('Insufficient stock for one or more items');
   await repository.createLedgerEntry(
@@ -89,7 +107,8 @@ export async function reserveStock(tx, variantId, quantity, orderId) {
 }
 
 // payment captured — the hold becomes a real sale
-export async function commitReservedStock(tx, variantId, quantity, orderId) {
+export async function commitReservedStock(tx, packVariantId, packQuantity, orderId) {
+  const [variantId, quantity] = await stockTarget(tx, packVariantId, packQuantity);
   await repository.commitStock(variantId, quantity, tx);
   await repository.createLedgerEntry(
     { variantId, changeQty: -quantity, reason: 'order', refType: 'order', refId: orderId },
@@ -98,7 +117,8 @@ export async function commitReservedStock(tx, variantId, quantity, orderId) {
 }
 
 // payment failed — give the hold back
-export async function releaseReservedStock(tx, variantId, quantity, orderId) {
+export async function releaseReservedStock(tx, packVariantId, packQuantity, orderId) {
+  const [variantId, quantity] = await stockTarget(tx, packVariantId, packQuantity);
   await repository.releaseStock(variantId, quantity, tx);
   await repository.createLedgerEntry(
     { variantId, changeQty: -quantity, reason: 'release', refType: 'order', refId: orderId },

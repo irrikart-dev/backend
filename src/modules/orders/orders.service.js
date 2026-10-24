@@ -8,17 +8,13 @@ import * as inventory from '../inventory/inventory.service.js';
 import * as discounts from '../discounts/discounts.service.js';
 import * as payments from '../payments/payments.service.js';
 import * as addresses from '../addresses/addresses.service.js';
-import { isProductSellable } from '../catalog/catalog.service.js';
+import { availableUnits as available, isProductSellable } from '../catalog/catalog.service.js';
 import * as shipping from '../shipping/shipping.service.js';
 import * as vendorsService from '../vendors/vendors.service.js';
 import * as returns from '../returns/returns.service.js';
 import * as notifications from '../notifications/notifications.service.js';
 import logger from '../../common/utils/logger.js';
 import { BadRequestError, ConflictError, NotFoundError } from '../../common/errors/AppError.js';
-
-function available(variant) {
-  return variant.stock - variant.reserved;
-}
 
 function generateOrderNumber() {
   const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -42,37 +38,7 @@ export async function checkout(user, { couponCode, addressId, paymentMethod = 'O
   const vendor = await vendorsService.getVendorById(cart.vendorId);
   if (!vendor || vendor.status !== 'ACTIVE') throw new BadRequestError('This seller is no longer available');
 
-  // re-validate against current stock/price — the cart's own include already joins the
-  // live variant row, so this is the same read, not a second query
-  const lineItems = [];
-
-  for (const item of cart.items) {
-    const { variant } = item;
-    if (!isProductSellable(variant.product, variant.product.vendor)) {
-      throw new ConflictError(`${variant.product.title} is no longer available — remove it from your cart`);
-    }
-    if (item.quantity > available(variant)) {
-      throw new ConflictError(`Only ${available(variant)} of ${variant.sku} available`);
-    }
-    const unitPrice = Number(variant.price);
-    lineItems.push({
-      variantId: variant.id,
-      quantity: item.quantity,
-      unitPrice,
-      totalPrice: unitPrice * item.quantity,
-    });
-  }
-
-  const subtotal = lineItems.reduce((sum, item) => sum + item.totalPrice, 0);
-
-  let coupon = null;
-  let discount = 0;
-  if (couponCode) {
-    coupon = await discounts.validateCoupon(couponCode, { userId, cartSubtotal: subtotal });
-    discount = discounts.calculateDiscount(coupon, subtotal);
-  }
-
-  const totalAmount = Math.max(Math.round(subtotal - discount), 0);
+  const { lineItems, coupon, totalAmount } = await priceCart(userId, cart, couponCode);
   // Razorpay rejects sub-₹1 orders outright — without this guard a coupon
   // that fully (or near-fully) offsets the subtotal sends amount:0 straight
   // to the gateway, which throws in a way the SDK mishandles (see
@@ -136,6 +102,88 @@ export async function checkout(user, { couponCode, addressId, paymentMethod = 'O
   // confirms (payments.service.js captureOrder), so a failed/abandoned payment leaves the
   // cart exactly as the user left it, ready to retry checkout
   return paymentSheet(user, order, providerOrder.id);
+}
+
+/**
+ * Re-validates the cart against live stock/price and prices it: lines (with the GST
+ * rate snapshot) and coupon. The cart's own include already joins the live variant
+ * row, so this is the same read, not a second query.
+ */
+async function priceCart(userId, cart, couponCode) {
+  const lineItems = [];
+  for (const item of cart.items) {
+    const { variant } = item;
+    if (!isProductSellable(variant.product, variant.product.vendor)) {
+      throw new ConflictError(`${variant.product.title} is no longer available — remove it from your cart`);
+    }
+    if (item.quantity > available(variant)) {
+      throw new ConflictError(`Only ${available(variant)} of ${variant.sku} available`);
+    }
+    const unitPrice = Number(variant.price);
+    lineItems.push({
+      variantId: variant.id,
+      quantity: item.quantity,
+      unitPrice,
+      totalPrice: unitPrice * item.quantity,
+      gstRate: variant.product.gstRate,
+      hsnCode: variant.product.hsnCode,
+    });
+  }
+
+  const subtotal = lineItems.reduce((sum, item) => sum + item.totalPrice, 0);
+
+  let coupon = null;
+  let discount = 0;
+  if (couponCode) {
+    coupon = await discounts.validateCoupon(couponCode, { userId, cartSubtotal: subtotal });
+    discount = discounts.calculateDiscount(coupon, subtotal);
+  }
+
+  return { lineItems, subtotal, coupon, discount, totalAmount: Math.max(Math.round(subtotal - discount), 0) };
+}
+
+/** Checkout summary for the app before it places the order — same maths checkout uses. */
+export async function quote(userId, { couponCode } = {}) {
+  const cart = await cartRepository.findActiveCartWithItems(userId);
+  if (!cart || cart.items.length === 0) throw new BadRequestError('Cart is empty');
+  const p = await priceCart(userId, cart, couponCode);
+  return {
+    subtotal: p.subtotal,
+    discount: p.discount,
+    total: p.totalAmount,
+    couponCode: p.coupon?.code ?? null,
+    // GST already included in the prices, split out by rate
+    tax: taxBreakup(p.lineItems, p.totalAmount),
+    currency: 'INR',
+  };
+}
+
+const round2 = (n) => Math.round(n * 100) / 100;
+
+/**
+ * GST is included in every price; this splits it back out per rate. Each line's share
+ * of a coupon discount comes off first, so the tax is on what was actually paid.
+ * Lines whose product has no GST rate set are left out.
+ * ponytail: no CGST/SGST vs IGST split — add it once invoices need the seller's and
+ * buyer's states compared.
+ */
+export function taxBreakup(items, goodsPaid) {
+  const subtotal = items.reduce((sum, i) => sum + Number(i.totalPrice), 0);
+  const byRate = new Map();
+  for (const i of items) {
+    if (i.gstRate == null || subtotal === 0) continue;
+    const rate = Number(i.gstRate);
+    const paid = (Number(i.totalPrice) / subtotal) * goodsPaid;
+    const tax = (paid * rate) / (100 + rate);
+    const row = byRate.get(rate) ?? { rate, taxable: 0, tax: 0 };
+    row.taxable += paid - tax;
+    row.tax += tax;
+    byRate.set(rate, row);
+  }
+  const lines = [...byRate.values()]
+    .sort((a, b) => a.rate - b.rate)
+    .map((r) => ({ rate: r.rate, taxable: round2(r.taxable), tax: round2(r.tax) }));
+  return { total: round2(lines.reduce((sum, l) => sum + l.tax, 0)), lines };
 }
 
 // everything the app needs to open (or reopen) the gateway's checkout sheet
@@ -380,6 +428,8 @@ function toOrderItemDto(item) {
     quantity: item.quantity,
     unitPrice: Number(item.unitPrice),
     totalPrice: Number(item.totalPrice),
+    gstRate: item.gstRate == null ? null : Number(item.gstRate),
+    hsnCode: item.hsnCode ?? null,
   };
 }
 
@@ -424,6 +474,8 @@ function toOrderDto(order) {
     subtotal,
     // not stored separately — whatever the coupon took off the line totals
     discount: Math.max(subtotal - Number(order.totalAmount), 0),
+    // GST included in the price, split out by rate
+    tax: taxBreakup(items, Number(order.totalAmount)),
     acceptedAt: order.acceptedAt,
     cancelledAt: order.cancelledAt,
     cancelledBy: order.cancelledBy,
@@ -433,6 +485,13 @@ function toOrderDto(order) {
     returnableUntil: returns.returnableUntil(order),
     items,
     address: toOrderAddressDto(order.address),
+    // money given back so far — cancellation, return or manual refund
+    refunds: (order.refunds ?? []).map((r) => ({
+      amount: Number(r.amount),
+      status: r.status,
+      reason: r.reason,
+      createdAt: r.createdAt,
+    })),
   };
 }
 

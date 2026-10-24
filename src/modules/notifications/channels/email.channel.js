@@ -13,7 +13,8 @@ const client = axios.create({
 export const send = ({ to, name, templateId, variables = {} }) =>
   client.post('/send', {
     recipients: [{ to: [{ email: to, name: name || to }], variables }],
-    from: { email: env.MSG91_EMAIL_FROM },
+    // the name inboxes show instead of the bare "no-reply" address
+    from: { email: env.MSG91_EMAIL_FROM, name: 'IrriKart' },
     domain: env.MSG91_EMAIL_DOMAIN,
     template_id: templateId,
   });

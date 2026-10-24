@@ -17,7 +17,7 @@ const productInclude = {
   },
   // full lists — the DTO still treats variants[0]/images[0] as the default
   // shown outside the PDP, but the PDP gallery/variant selector needs the rest
-  variants: { orderBy: { id: 'asc' } },
+  variants: { orderBy: { id: 'asc' }, include: { packOf: true } },
   images: { orderBy: { position: 'asc' } },
 };
 
@@ -45,7 +45,8 @@ function productWhere({
 } = {}) {
   const clauses = [];
   if (vendorId) clauses.push({ vendorId });
-  if (categoryId) clauses.push({ categoryId });
+  // a parent category's listing includes its sub-categories' products
+  if (categoryId) clauses.push({ OR: [{ categoryId }, { category: { parentId: categoryId } }] });
   if (brandId) clauses.push({ brandId });
   if (status) clauses.push({ status });
   if (publicOnly) clauses.push(publicVendorGate);
@@ -86,7 +87,7 @@ export default {
   },
 
   getCategoryById(id) {
-    return prisma.category.findUnique({ where: { id } });
+    return prisma.category.findUnique({ where: { id }, include: { _count: { select: { children: true } } } });
   },
 
   getCategoryBySlug(slug) {
@@ -104,6 +105,8 @@ export default {
   async deleteCategory(id) {
     const count = await prisma.product.count({ where: { categoryId: id } });
     if (count > 0) return { blocked: true, count };
+    const children = await prisma.category.count({ where: { parentId: id } });
+    if (children > 0) return { blocked: true, children };
     await prisma.category.delete({ where: { id } });
     return { blocked: false };
   },

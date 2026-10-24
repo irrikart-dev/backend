@@ -2,7 +2,7 @@ import repository from './catalog.repository.js';
 import * as inventoryService from '../inventory/inventory.service.js';
 import { deleteImage } from '../admin/admin.service.js';
 import { slugify } from '../../common/utils/slugify.js';
-import { NotFoundError, ConflictError, ForbiddenError } from '../../common/errors/AppError.js';
+import { BadRequestError, NotFoundError, ConflictError, ForbiddenError } from '../../common/errors/AppError.js';
 
 async function uniqueSlug(base) {
   let slug = base;
@@ -29,12 +29,20 @@ function toCategoryDto(c) {
     name: c.name,
     blurb: c.blurb ?? '',
     imageUrl: c.imageUrl ?? null,
+    // null for a top-level category; sub-categories are one level deep
+    parentId: c.parentId ?? null,
     productCount: c._count?.products ?? 0,
   };
 }
 
 function toBrandDto(b) {
   return { id: b.id, slug: b.slug, name: b.name, productCount: b._count?.products ?? 0 };
+}
+
+/** Units of `variant` that can still be bought — for a pack, whole packs the base variant can fill. */
+export function availableUnits(variant) {
+  if (variant.packOf) return Math.floor((variant.packOf.stock - variant.packOf.reserved) / variant.unitsPerPack);
+  return variant.stock - variant.reserved;
 }
 
 function toVariantDto(v) {
@@ -45,8 +53,11 @@ function toVariantDto(v) {
     color: v.color,
     unit: v.unit,
     price: Number(v.price),
-    stockQty: v.stock,
-    available: v.stock - v.reserved,
+    stockQty: v.packOf ? Math.floor(v.packOf.stock / v.unitsPerPack) : v.stock,
+    available: availableUnits(v),
+    // a pack of another variant: e.g. { id, unit: 'piece' } with unitsPerPack 12 for a dozen
+    packOf: v.packOf ? { id: v.packOf.id, unit: v.packOf.unit } : null,
+    unitsPerPack: v.unitsPerPack,
   };
 }
 
@@ -92,6 +103,9 @@ function toProductDto(p) {
     // which the public `images` array (just URLs) deliberately doesn't expose.
     galleryImages: (p.images ?? []).map((i) => ({ id: i.id, url: i.url, position: i.position })),
     videoUrl: p.videoUrl ?? null,
+    // GST already included in price, e.g. 18 — null until set
+    gstRate: p.gstRate == null ? null : Number(p.gstRate),
+    hsnCode: p.hsnCode ?? null,
     variants: (p.variants ?? []).map(toVariantDto),
     tagline: p.tagline ?? '',
     description: p.description ?? '',
@@ -258,16 +272,37 @@ export async function deleteBrand(id) {
 
 export async function listCategories() {
   const rows = await repository.listCategories();
-  return rows.map(toCategoryDto);
+  // a parent's count includes its sub-categories' products, matching what its listing shows
+  const nested = new Map();
+  for (const c of rows) {
+    if (c.parentId) nested.set(c.parentId, (nested.get(c.parentId) ?? 0) + (c._count?.products ?? 0));
+  }
+  return rows.map((c) => {
+    const dto = toCategoryDto(c);
+    return { ...dto, productCount: dto.productCount + (nested.get(c.id) ?? 0) };
+  });
+}
+
+// keeps the tree one level deep: the parent must exist and be top-level, and a
+// category that already has sub-categories can't itself be nested
+async function checkParent(parentId, { id, hasChildren = false } = {}) {
+  if (!parentId) return;
+  if (parentId === id) throw new BadRequestError('A category can’t be its own parent');
+  const parent = await repository.getCategoryById(parentId);
+  if (!parent) throw new BadRequestError('Parent category not found');
+  if (parent.parentId) throw new BadRequestError('Sub-categories can only go one level deep');
+  if (hasChildren) throw new BadRequestError('This category has sub-categories, so it can’t be nested');
 }
 
 export async function createCategory(input) {
+  await checkParent(input.parentId);
   const slug = await uniqueSlugForCategory(slugify(input.name));
   const category = await repository.createCategory({
     name: input.name,
     slug,
     blurb: input.blurb ?? null,
     imageUrl: input.imageUrl ?? null,
+    parentId: input.parentId ?? null,
   });
   return toCategoryDto(category);
 }
@@ -284,8 +319,10 @@ async function uniqueSlugForCategory(base) {
 export async function updateCategory(id, input) {
   const existing = await repository.getCategoryById(id);
   if (!existing) throw new NotFoundError('Category not found');
+  if (input.parentId !== undefined) await checkParent(input.parentId, { id, hasChildren: existing._count.children > 0 });
   const category = await repository.updateCategory(id, {
     ...(input.name !== undefined ? { name: input.name } : {}),
+    ...(input.parentId !== undefined ? { parentId: input.parentId } : {}),
     ...(input.blurb !== undefined ? { blurb: input.blurb } : {}),
     ...(input.imageUrl !== undefined ? { imageUrl: input.imageUrl } : {}),
   });
@@ -302,7 +339,9 @@ export async function deleteCategory(id) {
   const result = await repository.deleteCategory(id);
   if (result.blocked) {
     throw new ConflictError(
-      `Category has ${result.count} product(s) — move or delete them first`
+      result.children
+        ? `Category has ${result.children} sub-categor${result.children === 1 ? 'y' : 'ies'} — move or delete them first`
+        : `Category has ${result.count} product(s) — move or delete them first`
     );
   }
 
@@ -383,6 +422,8 @@ export async function createProduct(input) {
       inStock: input.inStock ?? true,
       status: input.status ?? 'PUBLISHED',
       videoUrl: input.videoUrl ?? null,
+      gstRate: input.gstRate ?? null,
+      hsnCode: input.hsnCode ?? null,
       source: 'admin',
     },
     variant: {
@@ -427,6 +468,8 @@ export async function updateProduct(id, input, { vendorId } = {}) {
       ...(input.inStock !== undefined ? { inStock: input.inStock } : {}),
       ...(input.status !== undefined ? { status: input.status } : {}),
       ...(input.videoUrl !== undefined ? { videoUrl: input.videoUrl } : {}),
+      ...(input.gstRate !== undefined ? { gstRate: input.gstRate } : {}),
+      ...(input.hsnCode !== undefined ? { hsnCode: input.hsnCode } : {}),
     },
     variant:
       input.unit !== undefined ||
@@ -519,10 +562,23 @@ export async function removeProductImage(productId, imageId) {
 
 // ---- variants (size/pack options, beyond the primary one createProduct makes) ----
 
+// a pack draws on a non-pack variant of the same product, in units of at least 2
+async function checkPackOf(product, { packOfId, unitsPerPack }, { id } = {}) {
+  if (!packOfId) return;
+  const base = product.variants.find((v) => v.id === packOfId);
+  if (!base || base.id === id) throw new BadRequestError('Pick another variant of this product to pack');
+  if (base.packOfId) throw new BadRequestError('A pack can’t be made of another pack');
+  if (id && product.variants.some((v) => v.packOfId === id)) {
+    throw new BadRequestError('Other packs are made of this variant, so it can’t become a pack');
+  }
+  if (!Number.isInteger(unitsPerPack) || unitsPerPack < 2) throw new BadRequestError('A pack holds at least 2 units');
+}
+
 export async function createProductVariant(productId, input) {
   const product = await repository.getProductById(productId);
   if (!product) throw new NotFoundError('Product not found');
 
+  await checkPackOf(product, input);
   const sku = input.sku ? await uniqueSku(input.sku) : await uniqueSku(`${product.variants[0]?.sku ?? productId}-V`);
   const variant = await repository.createVariant(productId, {
     sku,
@@ -530,7 +586,9 @@ export async function createProductVariant(productId, input) {
     color: input.color ?? null,
     unit: input.unit ?? 'piece',
     price: input.price,
-    stock: input.stockQty ?? 0,
+    stock: input.packOfId ? 0 : (input.stockQty ?? 0),
+    packOfId: input.packOfId ?? null,
+    unitsPerPack: input.packOfId ? input.unitsPerPack : 1,
     ...(input.weightKg !== undefined ? { weightKg: input.weightKg } : {}),
     ...(input.lengthCm !== undefined ? { lengthCm: input.lengthCm } : {}),
     ...(input.widthCm !== undefined ? { widthCm: input.widthCm } : {}),
@@ -548,9 +606,22 @@ export async function updateProductVariant(productId, variantId, input) {
   const variant = await repository.getVariantById(variantId);
   if (!variant || variant.productId !== productId) throw new NotFoundError('Variant not found');
 
+  let pack = {};
+  if (input.packOfId !== undefined || input.unitsPerPack !== undefined) {
+    const packOfId = input.packOfId !== undefined ? input.packOfId : variant.packOfId;
+    const unitsPerPack = packOfId ? (input.unitsPerPack ?? variant.unitsPerPack) : 1;
+    await checkPackOf(await repository.getProductById(productId), { packOfId, unitsPerPack }, { id: variantId });
+    // turning a stocked variant into a pack would strand its stock and reservations
+    if (packOfId && !variant.packOfId && (variant.stock > 0 || variant.reserved > 0)) {
+      throw new BadRequestError('Set this variant’s stock to 0 before making it a pack');
+    }
+    pack = { packOfId, unitsPerPack };
+  }
+
   if (input.stockQty !== undefined) await inventoryService.setStockLevel(variantId, input.stockQty);
 
   await repository.updateVariant(variantId, {
+    ...pack,
     ...(input.size !== undefined ? { size: input.size } : {}),
     ...(input.color !== undefined ? { color: input.color } : {}),
     ...(input.unit !== undefined ? { unit: input.unit } : {}),
@@ -574,6 +645,9 @@ export async function deleteProductVariant(productId, variantId) {
   }
   if (await repository.variantInUse(variantId)) {
     throw new ConflictError('Variant is referenced by a cart or past order — cannot delete');
+  }
+  if (product.variants.some((v) => v.packOfId === variantId)) {
+    throw new ConflictError('Packs are made of this variant — delete them first');
   }
 
   await repository.deleteVariant(variantId);

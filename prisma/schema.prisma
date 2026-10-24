@@ -125,6 +125,8 @@ model Vendor {
   status            VendorStatus @default(ACTIVE)
   commissionPercent Decimal      @default(10) @db.Decimal(5, 2)
   legalBusinessName String?
+  // printed on the vendor's tax invoices
+  gstin             String?
   contactEmail      String?
   contactPhone      String?
   razorpayAccountId String?      @unique
@@ -215,6 +217,10 @@ model Product {
   status      ProductStatus @default(PUBLISHED)
   // YouTube URL for the PDP media viewer's demo-video slot — optional, admin-set
   videoUrl    String?
+  // prices are GST-inclusive; the rate (e.g. 5, 12, 18) splits the tax out on the
+  // order summary and invoice. Null = not set yet, no tax line shown.
+  gstRate     Decimal?      @db.Decimal(5, 2)
+  hsnCode     String?
   source      String        @default("admin") // seed | admin
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
@@ -234,16 +240,22 @@ model Product {
 }
 
 model ProductVariant {
-  id        String  @id @default(cuid())
-  productId String
-  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-  sku       String  @unique
-  size      String?
-  color     String?
-  unit      String  @default("piece") // piece | dozen | carton
-  price     Decimal @db.Decimal(10, 2)
-  stock     Int     @default(0)
-  reserved  Int     @default(0) // held by orders not yet CAPTURED; available = stock - reserved
+  id           String           @id @default(cuid())
+  productId    String
+  product      Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku          String           @unique
+  size         String?
+  color        String?
+  unit         String           @default("piece") // piece | dozen | carton
+  price        Decimal          @db.Decimal(10, 2)
+  stock        Int              @default(0)
+  reserved     Int              @default(0) // held by orders not yet CAPTURED; available = stock - reserved
+  // a pack (e.g. a dozen) of another variant of the same product: its own SKU and price,
+  // but it draws `unitsPerPack` units from that variant's stock and keeps none of its own
+  packOfId     String?
+  packOf       ProductVariant?  @relation("VariantPacks", fields: [packOfId], references: [id])
+  packs        ProductVariant[] @relation("VariantPacks")
+  unitsPerPack Int              @default(1)
 
   // Shiprocket's create-order API requires per-item weight/dimensions — sane
   // defaults so nothing blocks on missing data; admin can refine per-product
@@ -260,6 +272,7 @@ model ProductVariant {
   @@index([productId])
   // price/stock filter on listing pages
   @@index([price])
+  @@index([packOfId])
 }
 
 model ProductImage {
@@ -435,6 +448,9 @@ model OrderItem {
   quantity   Int
   unitPrice  Decimal        @db.Decimal(10, 2)
   totalPrice Decimal        @db.Decimal(10, 2)
+  // the product's GST rate and HSN at checkout, so a later catalogue edit never changes an issued invoice
+  gstRate    Decimal?       @db.Decimal(5, 2)
+  hsnCode    String?
 
   review      Review?
   returnItems ReturnItem[]
@@ -483,12 +499,16 @@ model Refund {
   orderId          String
   order            Order    @relation(fields: [orderId], references: [id])
   razorpayRefundId String   @unique
-  status           String
+  status           String // pending | processed | failed — kept current by the refund.* webhooks
   amount           Decimal  @db.Decimal(10, 2)
+  // why the money went back: cancellation, return, manual admin refund, ...
+  reason           String?
   createdAt        DateTime @default(now())
 
   @@index([paymentId])
   @@index([orderId])
+  // admin refunds view, newest first
+  @@index([createdAt])
 }
 
 // ============================================================
@@ -539,7 +559,7 @@ enum ReturnType {
   REPLACE
 }
 
-// REQUESTED → APPROVED (pickup arranged) → COMPLETED (goods back, optionally restocked);
+// REQUESTED → APPROVED (pickup arranged) → COMPLETED (goods back, restocked/refunded);
 // REJECTED from either open state. Completing straight from REQUESTED is allowed too.
 enum ReturnStatus {
   REQUESTED
@@ -549,21 +569,25 @@ enum ReturnStatus {
 }
 
 model ReturnRequest {
-  id         String       @id @default(cuid())
-  orderId    String
-  order      Order        @relation(fields: [orderId], references: [id])
-  userId     String
-  user       User         @relation(fields: [userId], references: [id])
-  type       ReturnType   @default(RETURN)
-  reason     String
-  details    String?
-  photoUrls  String[]     @default([])
-  status     ReturnStatus @default(REQUESTED)
+  id           String       @id @default(cuid())
+  orderId      String
+  order        Order        @relation(fields: [orderId], references: [id])
+  userId       String
+  user         User         @relation(fields: [userId], references: [id])
+  type         ReturnType   @default(RETURN)
+  reason       String
+  details      String?
+  photoUrls    String[]     @default([])
+  status       ReturnStatus @default(REQUESTED)
   // shown to the customer with the decision
-  adminNote  String?
-  restocked  Boolean      @default(false)
-  resolvedAt DateTime?
-  createdAt  DateTime     @default(now())
+  adminNote    String?
+  // what was actually refunded on completion — null until then, and for replacements
+  refundAmount Decimal?     @db.Decimal(10, 2)
+  // gateway refund outcome on completion; "manual" for COD (paid back outside the gateway)
+  refundStatus String?
+  restocked    Boolean      @default(false)
+  resolvedAt   DateTime?
+  createdAt    DateTime     @default(now())
 
   items ReturnItem[]
 

@@ -9,7 +9,7 @@ import * as shipping from '../shipping/shipping.service.js';
 import * as vendorsService from '../vendors/vendors.service.js';
 import * as notifications from '../notifications/notifications.service.js';
 import logger from '../../common/utils/logger.js';
-import { BadRequestError, NotFoundError } from '../../common/errors/AppError.js';
+import { AppError, BadRequestError, ConflictError, NotFoundError } from '../../common/errors/AppError.js';
 
 // rupees -> paise boundary — nowhere else in the app deals in paise
 export async function createPaymentOrder({ amount, receipt }) {
@@ -45,6 +45,11 @@ export async function handleWebhookEvent(rawBody, signature, body) {
     logger.warn({ event: body?.event }, 'payment webhook: signature verification failed');
     throw new BadRequestError('Invalid webhook signature');
   }
+
+  // refund.* events carry the payment entity too, so they must branch off before the
+  // "payment already processed" probe below would swallow them
+  const refundEntity = body?.payload?.refund?.entity;
+  if (body?.event?.startsWith('refund.') && refundEntity?.id) return recordRefundEvent(refundEntity);
 
   const entity = body?.payload?.payment?.entity;
   if (!entity?.id || !entity?.order_id) throw new BadRequestError('Malformed webhook payload');
@@ -192,37 +197,106 @@ async function failOrder(payment, entity) {
 }
 
 /**
- * Full refund of an order's captured payment. Never throws — the caller has already
- * committed the cancellation, so a gateway error is logged and left visible on the
- * admin payments screen (captured, no refund row) for a manual retry.
- * reverse_all pulls back the vendor's Route transfer along with the refund.
+ * Refunds `amount` (default: the whole payment) of a captured payment. Never throws —
+ * callers have usually already committed the cancellation/return, so a gateway error
+ * is logged and left visible on the admin payments screen for a manual retry; the
+ * gateway's reason comes back as `error`.
+ * reverse_all pulls back the vendor's Route transfer (pro rata on a partial refund).
  */
-export async function refundPayment(payment, { reason }) {
+export async function refundPayment(payment, { reason, amount = Number(payment.amount) }) {
+  let refund;
   try {
-    const amount = Number(payment.amount);
-    const refund = await paymentProvider.refund(payment.providerPaymentId, {
+    refund = await paymentProvider.refund(payment.providerPaymentId, {
       amount: Math.round(amount * 100),
       notes: { reason: reason.slice(0, 250) },
       ...(payment.transferId ? { reverse_all: 1 } : {}),
     });
+  } catch (err) {
+    logger.error({ err, paymentId: payment.id, orderId: payment.orderId }, 'refund failed');
+    return { status: 'failed', amount, error: err?.error?.description || err?.message || 'Unknown gateway error' };
+  }
+
+  // the money has left from here on — never report 'failed', or a retry refunds twice
+  const status = refund.status ?? 'pending';
+  try {
     await repository.createRefund({
       paymentId: payment.id,
       orderId: payment.orderId,
       razorpayRefundId: refund.id,
-      status: refund.status ?? 'pending',
+      status,
       amount,
+      reason: reason.slice(0, 250),
     });
-    return { status: refund.status ?? 'pending' };
   } catch (err) {
-    logger.error({ err, paymentId: payment.id, orderId: payment.orderId }, 'refund failed');
-    return { status: 'failed' };
+    // the refund.created webhook beat us to the row — keep it, just give it the real reason
+    if (err?.code === 'P2002') await repository.setRefundReason(refund.id, reason.slice(0, 250));
+    // otherwise the webhook records it later (recordRefundEvent) — until then it's missing
+    // from refundable(), so flag it loudly
+    else logger.error({ err, refundId: refund.id, orderId: payment.orderId }, 'refund sent but not recorded');
   }
+  return { status, amount };
 }
 
-export async function refundOrder(orderId, { reason }) {
+// what's left to give back: the payment minus every refund that didn't fail
+function refundable(payment) {
+  const refunded = payment.refunds.filter((r) => r.status !== 'failed').reduce((sum, r) => sum + Number(r.amount), 0);
+  return Math.max(Number(payment.amount) - refunded, 0);
+}
+
+/** Refunds up to `amount` (default: everything still refundable) of an order's online payment. Null if it has none. */
+export async function refundOrder(orderId, { reason, amount } = {}) {
   const payment = await repository.findCapturedForOrder(orderId);
   if (!payment) return null;
-  return refundPayment(payment, { reason });
+  const value = Math.min(amount ?? Infinity, refundable(payment));
+  if (value <= 0) return { status: 'none', amount: 0 };
+  return refundPayment(payment, { reason, amount: value });
+}
+
+/** Admin's manual refund (full or partial) — unlike refundOrder, a gateway failure is the caller's error. */
+export async function refundOrderByAdmin({ orderId, amount, reason }) {
+  const payment = await repository.findCapturedForOrder(orderId);
+  if (!payment) throw new ConflictError('This order has no captured online payment to refund');
+  const left = refundable(payment);
+  if (left <= 0) throw new ConflictError('This payment has already been refunded in full');
+  if (amount != null && amount > left) throw new BadRequestError(`Only ₹${left} is left to refund on this payment`);
+  const result = await refundPayment(payment, { reason: `Manual refund: ${reason}`, amount: amount ?? left });
+  if (result.status === 'failed') throw new AppError(`Refund failed: ${result.error}`, 502);
+  return result;
+}
+
+// Razorpay moves a refund pending → processed (or failed) after the API call returns.
+// A refund we have no row for was issued from the Razorpay dashboard — record it so
+// reconciliation still adds up.
+async function recordRefundEvent(entity) {
+  const existing = await repository.findRefundByProviderId(entity.id);
+  if (existing) {
+    if (entity.status && existing.status !== entity.status) {
+      await repository.updateRefundStatus(existing.id, entity.status);
+      if (entity.status === 'processed') {
+        await notifications.notifyOrderEvent(existing.orderId, 'REFUND_PROCESSED', { amount: Number(existing.amount) });
+      }
+    }
+    return;
+  }
+  const payment = entity.payment_id ? await repository.findByProviderPaymentId(entity.payment_id) : null;
+  if (!payment) {
+    logger.warn({ refundId: entity.id, paymentId: entity.payment_id }, 'refund webhook: no matching payment');
+    return;
+  }
+  await repository
+    .createRefund({
+      paymentId: payment.id,
+      orderId: payment.orderId,
+      razorpayRefundId: entity.id,
+      status: entity.status ?? 'pending',
+      // paise -> rupees; Decimal(10,2) keeps the paise
+      amount: Number(entity.amount ?? 0) / 100,
+      reason: 'Issued from the Razorpay dashboard',
+    })
+    // our own refund call and its webhook can race to create the same row
+    .catch((err) => {
+      if (err?.code !== 'P2002') throw err;
+    });
 }
 
 // ---- saved payment methods ----
@@ -310,7 +384,7 @@ export async function listPaymentsForAdmin({ page, limit, ...filter }) {
 
   return {
     items: rows.map((p) => {
-      const refunded = p.refunds.reduce((sum, r) => sum + Number(r.amount), 0);
+      const refunded = p.refunds.filter((r) => r.status !== 'failed').reduce((sum, r) => sum + Number(r.amount), 0);
       return {
         id: p.id,
         orderId: p.order.id,
@@ -345,5 +419,45 @@ export async function listPaymentsForAdmin({ page, limit, ...filter }) {
       refunded: Number(summary.refunded ?? 0),
       transferFailed: summary.transferFailed,
     },
+  };
+}
+
+export async function listRefundsForAdmin({ status, search, from, to, page, limit }) {
+  const clauses = [];
+  if (status) clauses.push({ status });
+  if (from) clauses.push({ createdAt: { gte: from } });
+  if (to) clauses.push({ createdAt: { lte: to } });
+  if (search) {
+    clauses.push({
+      OR: [
+        { razorpayRefundId: { contains: search } },
+        { order: { orderNumber: { contains: search, mode: 'insensitive' } } },
+        { reason: { contains: search, mode: 'insensitive' } },
+      ],
+    });
+  }
+  const where = clauses.length ? { AND: clauses } : {};
+  const [rows, total, byStatus] = await Promise.all([
+    repository.listRefundsForAdmin(where, { skip: (page - 1) * limit, take: limit }),
+    repository.countRefundsForAdmin(where),
+    repository.summariseRefundsForAdmin(where),
+  ]);
+  return {
+    items: rows.map((r) => ({
+      id: r.id,
+      razorpayRefundId: r.razorpayRefundId,
+      providerPaymentId: r.payment.providerPaymentId,
+      orderId: r.order.id,
+      orderNumber: r.order.orderNumber,
+      customer: r.order.user.name ?? r.order.user.phone ?? r.order.user.email,
+      amount: Number(r.amount),
+      status: r.status,
+      reason: r.reason,
+      createdAt: r.createdAt,
+    })),
+    page,
+    limit,
+    total,
+    summary: Object.fromEntries(byStatus.map((g) => [g.status, { count: g._count, amount: Number(g._sum.amount ?? 0) }])),
   };
 }

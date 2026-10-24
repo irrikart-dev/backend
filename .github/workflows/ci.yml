@@ -25,6 +25,8 @@ jobs:
       RAZORPAY_KEY_SECRET: ci
       SUPABASE_URL: http://localhost:1
       SUPABASE_SECRET_KEY: ci
+      # COD is off in production (prepaid only); the checks still exercise its code path
+      COD_ENABLED: 'true'
       COD_MAX_ORDER_AMOUNT: 1000
       NODE_ENV: production
     steps:

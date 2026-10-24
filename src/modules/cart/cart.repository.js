@@ -10,6 +10,8 @@ const cartInclude = {
       variant: {
         include: {
           product: { include: { images: { take: 1, orderBy: { position: 'asc' } }, vendor: sellableVendor } },
+          // a pack's availability comes from the variant it packs
+          packOf: true,
         },
       },
     },
@@ -35,7 +37,7 @@ export default {
   findVariantById(variantId) {
     return prisma.productVariant.findUnique({
       where: { id: variantId },
-      include: { product: { select: { vendorId: true, status: true, vendor: sellableVendor } } },
+      include: { product: { select: { vendorId: true, status: true, vendor: sellableVendor } }, packOf: true },
     });
   },
 

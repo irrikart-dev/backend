@@ -49,6 +49,28 @@ export default {
         cancelledBy: true,
         cancelReason: true,
         shipment: { select: { awbNumber: true } },
+        // the email's order summary
+        items: {
+          orderBy: { id: 'asc' },
+          select: {
+            quantity: true,
+            unitPrice: true,
+            totalPrice: true,
+            variant: {
+              select: {
+                size: true,
+                unit: true,
+                product: {
+                  select: {
+                    title: true,
+                    brand: { select: { name: true } },
+                    images: { take: 1, orderBy: { position: 'asc' }, select: { url: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
       },
     });
   },

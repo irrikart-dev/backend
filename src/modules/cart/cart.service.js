@@ -1,10 +1,6 @@
 import repository from './cart.repository.js';
-import { isProductSellable } from '../catalog/catalog.service.js';
+import { availableUnits as available, isProductSellable } from '../catalog/catalog.service.js';
 import { AppError, NotFoundError, ConflictError, VendorConflictError } from '../../common/errors/AppError.js';
-
-function available(variant) {
-  return variant.stock - variant.reserved;
-}
 
 const purchasable = (variant) => isProductSellable(variant.product, variant.product.vendor);
 

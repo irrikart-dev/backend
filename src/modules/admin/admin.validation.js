@@ -33,6 +33,9 @@ export const productBodyFields = {
   brandId: z.string().min(1).nullable().optional(),
   inStock: z.boolean().optional(),
   status: productStatus.optional(),
+  // GST % included in the price (slabs change — 5 and 18 cover most of the catalogue)
+  gstRate: z.number().min(0).max(40).nullable().optional(),
+  hsnCode: z.string().trim().regex(/^\d{4,8}$/, 'HSN codes are 4–8 digits').nullable().optional(),
   ...shippingDims,
 };
 
@@ -57,6 +60,9 @@ export const updateProductSchema = z.object({
     brandId: z.string().min(1).nullable().optional(),
     inStock: z.boolean().optional(),
     status: productStatus.optional(),
+    // GST % included in the price (slabs change — 5 and 18 cover most of the catalogue)
+    gstRate: z.number().min(0).max(40).nullable().optional(),
+    hsnCode: z.string().trim().regex(/^\d{4,8}$/, 'HSN codes are 4–8 digits').nullable().optional(),
     ...shippingDims,
   }),
 });
@@ -75,6 +81,9 @@ export const createVariantSchema = z.object({
     price: z.number().nonnegative(),
     stockQty: z.number().int().nonnegative().optional(),
     sku: z.string().min(1).optional(),
+    // sell this variant as a pack of another variant of the product (e.g. a dozen of "piece")
+    packOfId: z.string().min(1).nullable().optional(),
+    unitsPerPack: z.number().int().min(2).max(10000).optional(),
     ...shippingDims,
   }),
 });
@@ -86,6 +95,9 @@ export const updateVariantSchema = z.object({
     unit: z.string().optional(),
     price: z.number().nonnegative().optional(),
     stockQty: z.number().int().nonnegative().optional(),
+    // null turns a pack back into a variant with its own stock
+    packOfId: z.string().min(1).nullable().optional(),
+    unitsPerPack: z.number().int().min(2).max(10000).optional(),
     ...shippingDims,
   }),
 });
@@ -107,6 +119,8 @@ export const createCategorySchema = z.object({
     name: z.string().min(1),
     blurb: z.string().optional(),
     imageUrl: z.string().nullable().optional(),
+    // a top-level category to nest this one under — one level deep
+    parentId: z.string().min(1).nullable().optional(),
   }),
 });
 
@@ -115,6 +129,7 @@ export const updateCategorySchema = z.object({
     name: z.string().min(1).optional(),
     blurb: z.string().optional(),
     imageUrl: z.string().nullable().optional(),
+    parentId: z.string().min(1).nullable().optional(),
   }),
 });
 

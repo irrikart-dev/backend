@@ -14,6 +14,7 @@ const orderItemInclude = {
     },
   },
   address: true,
+  refunds: { orderBy: { createdAt: 'asc' } },
   ...latestPayment,
 };
 
@@ -54,11 +55,13 @@ export default {
         vendorAmount,
         platformAmount,
         items: {
-          create: items.map(({ variantId, quantity, unitPrice, totalPrice }) => ({
+          create: items.map(({ variantId, quantity, unitPrice, totalPrice, gstRate = null, hsnCode = null }) => ({
             variantId,
             quantity,
             unitPrice,
             totalPrice,
+            gstRate,
+            hsnCode,
           })),
         },
       },

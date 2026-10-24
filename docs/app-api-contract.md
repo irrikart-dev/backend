@@ -32,6 +32,11 @@ Messages in the error tables are the exact strings the server sends. The app may
 | 2026-10-19 | **Returns:** `POST /returns/photos`, `POST /returns`, `GET /returns`. Order detail adds `deliveredAt`, `returnableUntil` and `returns[]`. A completed return restocks the items but issues no refund in the app. |
 | | **Notifications:** `POST`/`DELETE /notifications/devices` for FCM tokens, `GET /notifications`, `POST /notifications/:id/read`, `POST /notifications/read-all`. Order and return updates arrive as pushes. |
 | | **Coupons:** `GET /discounts/offers`. New checkout error `400 This coupon is only for your first order`. A coupon issued to another customer returns `404 Coupon not found`. |
+| 2026-10-24 | **Packs:** a variant can be a pack of another variant (e.g. a dozen of `piece`). Variants add `packOf` (`{ id, unit }` or null) and `unitsPerPack`. A pack has its own price and is carted and ordered like any variant; its `available` is whole packs the base stock can fill. |
+| | **GST:** new `POST /orders/quote` prices the cart (subtotal, coupon discount, total, GST per rate) for the checkout screen. Order detail adds `tax { total, lines[] }`, and order lines add `gstRate` / `hsnCode`. Prices stay GST-inclusive; totals don't change. |
+| | **Sub-categories:** `GET /catalog/categories` adds `parentId` (null for top-level; one level deep). Filtering products by a parent `category` includes its sub-categories' products, and a parent's `productCount` includes them too. |
+| | **Return refunds:** completing a `RETURN` now refunds the customer: the returned lines' share of what was paid (coupon spread across lines), unless staff change the amount. Return requests add `refundAmount` and `refundStatus`. Online orders get a Razorpay refund to the original payment method; COD returns are `manual` (paid back directly). Staff can also refund any online order by hand, fully or partly; those show up in `refunds[]` too. |
+| | **Refunds on order detail:** `GET /orders/:id` adds `refunds[]` (`amount`, `status`, `reason`, `createdAt`). Razorpay's `refund.*` webhooks keep `status` current (`pending` → `processed` / `failed`), and a `REFUND_PROCESSED` notification is sent when the bank has it. |
 
 ---
 
@@ -262,7 +267,7 @@ Afterwards, sign out of Firebase locally and clear all local state. Signing in a
 
 ### GET /catalog/categories
 
-The list is flat and sorted by name. The parent/child tree is not exposed.
+The list is sorted by name. Sub-categories are one level deep: a row with `parentId` set sits under that top-level category. Show top-level categories (`parentId: null`) on browse screens and a parent's sub-categories as filters on its product list.
 
 ```json
 {
@@ -274,7 +279,17 @@ The list is flat and sorted by name. The parent/child tree is not exposed.
       "name": "Drip Irrigation",
       "blurb": "Emitters, laterals and complete drip kits",
       "imageUrl": "https://xyz.supabase.co/storage/v1/object/public/irrikart-uploads/categories/drip.jpg",
+      "parentId": null,
       "productCount": 42
+    },
+    {
+      "id": "cm1cat0002emit0000000001",
+      "slug": "emitters",
+      "name": "Emitters",
+      "blurb": "",
+      "imageUrl": null,
+      "parentId": "cm1cat0001drip0000000001",
+      "productCount": 17
     }
   ]
 }
@@ -285,7 +300,8 @@ The list is flat and sorted by name. The parent/child tree is not exposed.
 | `id`, `slug`, `name` | string | Pass `id` as the `category` filter |
 | `blurb` | string | `""` when unset |
 | `imageUrl` | string \| null | |
-| `productCount` | int | Counts **all** products in the category, including hidden ones, so it may exceed what the list returns |
+| `parentId` | string \| null | The top-level category this one sits under. `null` for top-level |
+| `productCount` | int | Counts **all** products in the category (and, for a parent, in its sub-categories), including hidden ones, so it may exceed what the list returns |
 
 ### GET /catalog/brands
 
@@ -403,8 +419,8 @@ Note: price filters match on any variant, but a card's `price` shows the default
   ],
   "videoUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
   "variants": [
-    { "id": "cm2var0001drip0000000001", "sku": "DRIP-KIT-1AC", "size": "1 acre", "color": null, "unit": "piece", "price": 4999, "stockQty": 25, "available": 22 },
-    { "id": "cm2var0002drip0000000002", "sku": "DRIP-KIT-2AC", "size": "2 acre", "color": null, "unit": "piece", "price": 8999, "stockQty": 0, "available": 0 }
+    { "id": "cm2var0001drip0000000001", "sku": "DRIP-KIT-1AC", "size": "1 acre", "color": null, "unit": "piece", "price": 4999, "stockQty": 25, "available": 22, "packOf": null, "unitsPerPack": 1 },
+    { "id": "cm2var0003drip0000000003", "sku": "DRIP-KIT-1AC-4", "size": null, "color": null, "unit": "carton", "price": 18999, "stockQty": 6, "available": 5, "packOf": { "id": "cm2var0001drip0000000001", "unit": "piece" }, "unitsPerPack": 4 }
   ],
   "tagline": "Everything to drip-irrigate one acre",
   "description": "16 mm laterals, 4 LPH inline emitters, screen filter and fittings.",
@@ -435,7 +451,7 @@ Note: price filters match on any variant, but a card's `price` shows the default
 | `imageUrl` | string \| null | First image. Use it for cards |
 | `images` | string[] | Full gallery, ordered. `[]` if none |
 | `videoUrl` | string \| null | YouTube URL for the PDP media viewer |
-| `variants` | Variant[] | Every option, ordered. `variants[0]` is the default |
+| `variants` | Variant[] | Every option, ordered. `variants[0]` is the default. A variant with `packOf` set is a **pack**: `unitsPerPack` of `packOf.unit` sold together at the pack's own `price` (label it e.g. "Carton · 4 pieces"). Its `stockQty` / `available` are whole packs. Cart and order it by its own `id` like any variant |
 | `tagline`, `description` | string | `""` when unset |
 | `features` | string[] | Bullet points |
 | `specs` | `{label, value}[]` | `[]` when unset. Stored as JSON, so parse defensively |
@@ -698,6 +714,7 @@ All order endpoints need auth.
 
 | Method | Path | Purpose |
 |---|---|---|
+| POST | `/orders/quote` | Price the cart for the checkout summary (coupon, GST) without placing anything |
 | POST | `/orders/checkout` | Place an order from the cart (ONLINE or COD) |
 | GET | `/orders` | Order history (latest 50, newest first) |
 | GET | `/orders/:id` | Order detail |
@@ -705,6 +722,41 @@ All order endpoints need auth.
 | POST | `/orders/:id/cancel` | Cancel |
 | POST | `/orders/:id/reorder` | Put a past order's items back in the cart |
 | GET | `/orders/:id/invoice` | Invoice PDF |
+
+### POST /orders/quote
+
+Prices the caller's **current cart** exactly as checkout will, without placing anything or reserving stock. Use it for the checkout summary and to check a coupon before paying. Call it again whenever the cart or the coupon changes.
+
+| Field | Type | Constraints |
+|---|---|---|
+| `couponCode` | string | Optional. 1 to 40 chars, case-insensitive |
+
+```json
+{
+  "success": true,
+  "data": {
+    "subtotal": 323,
+    "discount": 23,
+    "total": 300,
+    "couponCode": "MONSOON",
+    "tax": {
+      "total": 21.36,
+      "lines": [
+        { "rate": 5, "taxable": 92.86, "tax": 4.64 },
+        { "rate": 18, "taxable": 92.86, "tax": 16.72 }
+      ]
+    },
+    "currency": "INR"
+  }
+}
+```
+
+| Field | Notes |
+|---|---|
+| `subtotal`, `discount`, `total` | Rupees. `total` is what checkout will charge |
+| `tax` | GST already **included** in the prices, split out per rate. Each line's share of the coupon discount comes off first. Products with no GST rate set add nothing. Show the lines as "Incl. GST 18%: ₹16.72" under the total; never add them to it |
+
+Errors are the same as checkout's for the cart and the coupon: 400 `Cart is empty`, 400 coupon not applicable (message says why), 404 `Coupon not found`, 409 stock or seller problems.
 
 ### POST /orders/checkout
 
@@ -874,9 +926,12 @@ Returns at most the **latest 50 orders**, newest first. It is a plain array with
         "unit": "piece",
         "quantity": 2,
         "unitPrice": 4999,
-        "totalPrice": 9998
+        "totalPrice": 9998,
+        "gstRate": 12,
+        "hsnCode": "8424"
       }
     ],
+    "tax": { "total": 963.86, "lines": [ { "rate": 12, "taxable": 8034.14, "tax": 963.86 } ] },
     "address": {
       "name": "Ramesh Patil",
       "phone": "9876543210",
@@ -894,7 +949,8 @@ Returns at most the **latest 50 orders**, newest first. It is a plain array with
         { "status": "IN TRANSIT", "description": "Reached Pune hub", "occurredAt": "2026-10-18T02:31:00.000Z" }
       ]
     },
-    "returns": []
+    "returns": [],
+    "refunds": []
   }
 }
 ```
@@ -911,8 +967,11 @@ Returns at most the **latest 50 orders**, newest first. It is a plain array with
 | `cancelledAt`, `cancelledBy`, `cancelReason` | Set when cancelled |
 | `items[].id` | **Order item id**. Use it as `orderItemId` when posting a review |
 | `items[].unitPrice`, `totalPrice` | Frozen at checkout |
+| `items[].gstRate`, `hsnCode` | The product's GST % and HSN code as of checkout. `null` when not set |
+| `tax` | GST included in `amount`, split per rate: `{ total, lines: [{ rate, taxable, tax }] }`. Same maths as `POST /orders/quote`. Empty `lines` when no product had a rate |
 | `address` | The address the order ships to (no id). Null only for legacy orders |
 | `shipment` | `null` until a shipment is booked (see Shipping) |
+| `refunds[]` | Money sent back on this order, oldest first: `{ amount, status, reason, createdAt }`. `status` is `pending` (sent to Razorpay), `processed` (bank has it; can take 5 to 7 working days to show) or `failed` (staff follow up). `reason` is free text, e.g. the cancellation reason. Empty when nothing was refunded |
 
 Errors: 404 `Order not found` (missing or not yours).
 
@@ -1082,7 +1141,7 @@ Response **204**. Errors: 404 `Saved method not found`.
 
 ## 7. Coupons
 
-- Coupons are **entered at checkout only**, as `couponCode` on `POST /orders/checkout`. **There is no endpoint to validate a coupon or preview the discount beforehand.** The discount first appears on the created order (`discount` on `GET /orders/:id`). For ONLINE, the payable `amount` in the checkout response already includes it.
+- Coupons are sent as `couponCode` on `POST /orders/checkout`. To check one and show the discount before paying, call `POST /orders/quote { couponCode }`: it fails the same way checkout would and returns the discounted `total`. The discount is also on the created order (`discount` on `GET /orders/:id`). For ONLINE, the payable `amount` in the checkout response already includes it.
 - `GET /discounts/offers` (auth) lists coupons the user can apply right now, for an offers screen or a "View offers" sheet next to the coupon field. It contains the coupons staff chose to show, plus any coupon issued to this user. It leaves out expired, used-up and first-order coupons the user no longer qualifies for.
 
 ```json
@@ -1278,6 +1337,8 @@ Response 201, the return request:
     "details": null,
     "photoUrls": ["https://xyz.supabase.co/storage/v1/object/public/irrikart-uploads/returns/9f1c.jpeg"],
     "adminNote": null,
+    "refundAmount": null,
+    "refundStatus": null,
     "restocked": false,
     "createdAt": "2026-10-20T08:00:00.000Z",
     "resolvedAt": null,
@@ -1292,8 +1353,17 @@ Statuses:
 |---|---|
 | `REQUESTED` | Waiting for staff |
 | `APPROVED` | Accepted. Staff arrange the pickup |
-| `COMPLETED` | Goods received. **No refund is issued in the app**; IrriKart staff settle it with the customer |
+| `COMPLETED` | Goods received. A `RETURN` is refunded: see `refundAmount` / `refundStatus` below. A `REPLACE` is never refunded |
 | `REJECTED` | Declined. `adminNote` says why |
+
+`refundAmount` / `refundStatus` are set when a `RETURN` completes (null before, and on replacements):
+
+| `refundStatus` | Meaning / UI |
+|---|---|
+| `pending` / `processed` | Sent to Razorpay. Show "₹X is on its way back to your original payment method". The refund also appears in the order's `refunds[]` |
+| `manual` | COD order. Show "We'll pay ₹X back to you directly" |
+| `failed` | The gateway refused. Staff follow up. Show "Our team will process your refund" |
+| `none` | Nothing was left to refund (already refunded by staff) |
 
 `adminNote` is a message from staff to the customer. Show it when it isn't null. Each status change also arrives as a push (see Notifications). Once every unit on an order has been returned, the order becomes `RETURNED`.
 
@@ -1361,8 +1431,6 @@ Don't build UI that depends on these. Each was checked in the code:
 | Shipping fee, pincode serviceability, delivery ETA | Not implemented |
 | Order tracking URL / courier name | Not exposed (only AWB + events) |
 | Customer-booked return pickup | Staff arrange pickups outside the app |
-| Refunds for returns | Not in the app. A completed return only restocks; staff refund outside the app |
-| Category tree | `parentId` is not exposed. Categories are a flat list |
 | Vendor storefront endpoint | None. Use `GET /catalog/products?vendor=<id>` plus `product.vendor` |
 | Pagination on orders, reviews, RFQs, wishlist | Not implemented. Orders are capped at 50 |
 | Profile email/phone change | Not via API (they come from Firebase) |
@@ -1391,7 +1459,7 @@ Don't build UI that depends on these. Each was checked in the code:
    - 409 without details: stock message.
 5. Cart screen: `GET /cart`. Change quantity with `PATCH /cart/items/<itemId>`, remove with `DELETE /cart/items/<itemId>`.
 6. Address step: `GET /addresses`. Preselect `isDefault`. If the list is empty, show the add form (`POST /addresses`).
-7. Checkout screen: an optional coupon field ("View offers" → `GET /discounts/offers`), then `ONLINE` / `COD`. Hide or disable COD when `cart.total > 5000` (server default; the server stays authoritative).
+7. Checkout screen: an optional coupon field ("View offers" → `GET /discounts/offers`), the summary from `POST /orders/quote { couponCode? }` (re-call it when the cart or coupon changes), then `ONLINE` / `COD`. Hide or disable COD when `cart.total > 5000` (server default; the server stays authoritative).
 8. `POST /orders/checkout { addressId, couponCode?, paymentMethod: "ONLINE" }` → 201. Keep `orderId`.
 9. Open Razorpay as described in Payments, then continue with flow D.
 
@@ -1449,7 +1517,7 @@ Steps 1 to 7 as in B, then:
 2. Let the user pick lines and quantities, a type (return or replace), a reason (offer presets like "Damaged", "Wrong item" or "Not as described"), optional details, and up to 5 photos.
 3. Upload each photo with `POST /returns/photos` and collect the `url`s.
 4. `POST /returns { orderId, type, reason, details?, photoUrls, items }` → 201. Show "Return requested".
-5. Order detail shows `returns[0].status` and `adminNote`. After `COMPLETED`, show "Return complete — our team will contact you about the refund".
+5. Order detail shows `returns[0].status` and `adminNote`. After `COMPLETED`, show the refund outcome from `refundAmount` / `refundStatus` (table in **Returns**).
 
 ### I. Push notifications
 

@@ -31,7 +31,7 @@ router.use(authenticate, loadUser);
  *     description: >
  *       Within RETURN_WINDOW_DAYS of delivery, one open request per order. `items`
  *       defaults to everything still returnable. Staff approve, then complete it once
- *       the goods are back — that restocks them. Refunds are settled outside the app.
+ *       the goods are back — that restocks them and refunds a RETURN pro-rata.
  *     security: [{ bearerAuth: [] }]
  *     responses:
  *       201: { description: Return request }

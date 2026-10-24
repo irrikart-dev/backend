@@ -7,6 +7,11 @@ export const checkout = asyncHandler(async (req, res) => {
   res.status(201).json({ success: true, data });
 });
 
+export const quote = asyncHandler(async (req, res) => {
+  const data = await service.quote(req.user.id, req.validated.body);
+  res.json({ success: true, data });
+});
+
 export const getOrder = asyncHandler(async (req, res) => {
   const data = await service.getOrder(req.user.id, req.params.id);
   res.json({ success: true, data });

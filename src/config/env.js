@@ -12,7 +12,8 @@ export default {
   PAYMENT_PROVIDER: process.env.PAYMENT_PROVIDER || 'razorpay',
 
   // checkout / order rules
-  COD_ENABLED: process.env.COD_ENABLED !== 'false',
+  // prepaid only by decision (24 Oct 2026) — COD stays off unless explicitly turned on
+  COD_ENABLED: process.env.COD_ENABLED === 'true',
   // largest order total (₹) that may be paid cash on delivery
   COD_MAX_ORDER_AMOUNT: Number(process.env.COD_MAX_ORDER_AMOUNT || 5000),
   // how long after placing an order the customer may still cancel it themselves
