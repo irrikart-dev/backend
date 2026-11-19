@@ -436,7 +436,7 @@ export async function createProduct(input) {
       ...(input.widthCm !== undefined ? { widthCm: input.widthCm } : {}),
       ...(input.heightCm !== undefined ? { heightCm: input.heightCm } : {}),
     },
-    imageUrl: input.imageUrl ?? null,
+    imageUrls: [input.imageUrl, ...(input.galleryUrls ?? [])].filter(Boolean),
   });
 
   const variant = row.variants[0];

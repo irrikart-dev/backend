@@ -11,7 +11,17 @@ export function validate(schema) {
     });
 
     if (!result.success) {
-      return next(new BadRequestError('Validation failed', result.error.flatten()));
+      // Same { formErrors, fieldErrors } shape as zod's flatten(), but keyed by the
+      // field inside body/query/params — flatten() only groups by the first path
+      // segment, so every field error came back under "body".
+      const formErrors = [];
+      const fieldErrors = {};
+      for (const { path, message } of result.error.issues) {
+        const field = path.slice(1).join('.');
+        if (field) (fieldErrors[field] ??= []).push(message);
+        else formErrors.push(message);
+      }
+      return next(new BadRequestError('Validation failed', { formErrors, fieldErrors }));
     }
 
     req.validated = result.data;

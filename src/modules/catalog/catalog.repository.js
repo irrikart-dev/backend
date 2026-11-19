@@ -259,12 +259,13 @@ export default {
     return prisma.productVariant.findUnique({ where: { sku } });
   },
 
-  createProduct({ product, variant, imageUrl }) {
+  /** imageUrls[0] becomes the primary image; the rest follow it in the gallery. */
+  createProduct({ product, variant, imageUrls }) {
     return prisma.product.create({
       data: {
         ...product,
         variants: { create: variant },
-        ...(imageUrl ? { images: { create: { url: imageUrl, position: 0 } } } : {}),
+        images: { create: imageUrls.map((url, position) => ({ url, position })) },
       },
       include: productInclude,
     });
@@ -273,7 +274,8 @@ export default {
   async updateProduct(id, { product, variant, imageUrl }) {
     const existing = await prisma.product.findUnique({
       where: { id },
-      include: { variants: { take: 1 }, images: { take: 1 } },
+      // primary = lowest position; unordered, take:1 could pick a gallery photo
+      include: { variants: { take: 1 }, images: { take: 1, orderBy: { position: 'asc' } } },
     });
     if (!existing) return null;
 

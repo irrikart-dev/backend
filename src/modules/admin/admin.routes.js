@@ -23,6 +23,7 @@ import {
   createVariantSchema,
   updateVariantSchema,
   bulkUpdateProductsSchema,
+  importProductsSchema,
   listProductsQuerySchema,
   brandSchema,
   createBannerSchema,
@@ -113,6 +114,7 @@ router.get('/products', validate(listProductsQuerySchema), controller.listProduc
 router.patch('/products/bulk', validate(bulkUpdateProductsSchema), controller.bulkUpdateProducts);
 router.get('/products/:id', controller.getProduct);
 router.post('/products', validate(createProductSchema), controller.createProduct);
+router.post('/products/import', validate(importProductsSchema), controller.importProducts);
 router.patch('/products/:id', validate(updateProductSchema), controller.updateProduct);
 router.patch('/products/:id/pricing', validate(pricingSchema), controller.updateProductPricing);
 router.patch('/products/:id/stock', validate(stockSchema), controller.updateProductStock);

@@ -42,6 +42,21 @@ export const createProduct = asyncHandler(async (req, res) => {
   res.status(201).json({ success: true, data });
 });
 
+// One row failing (duplicate SKU, deleted category) mustn't sink the rest of the
+// batch, so each is created on its own and reported back by its index.
+export const importProducts = asyncHandler(async (req, res) => {
+  const results = [];
+  for (const [index, input] of req.validated.body.products.entries()) {
+    try {
+      const product = await catalogService.createProduct(input);
+      results.push({ index, ok: true, id: product.id });
+    } catch (err) {
+      results.push({ index, ok: false, error: err.message });
+    }
+  }
+  res.status(201).json({ success: true, data: { results } });
+});
+
 export const updateProduct = asyncHandler(async (req, res) => {
   const data = await catalogService.updateProduct(req.params.id, req.validated.body);
   res.json({ success: true, data });

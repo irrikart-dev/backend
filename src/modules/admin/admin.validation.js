@@ -27,6 +27,9 @@ export const productBodyFields = {
   price: z.number().nonnegative(),
   stockQty: z.number().int().nonnegative().optional(),
   imageUrl: z.string().nullable().optional(),
+  // extra photos saved after the primary one, in order — create-only; once the
+  // product exists, the /products/:id/images endpoints manage the gallery
+  galleryUrls: z.array(z.string().min(1)).max(10).optional(),
   videoUrl: z.string().url().nullable().optional(),
   features: z.array(z.string()).optional(),
   specs: z.array(specSchema).optional(),
@@ -41,6 +44,14 @@ export const productBodyFields = {
 
 export const createProductSchema = z.object({
   body: z.object({ ...productBodyFields, vendorId: z.string().min(1) }),
+});
+
+// spreadsheet import — the dashboard parses the file and sends rows in batches
+// small enough to finish inside one serverless request
+export const importProductsSchema = z.object({
+  body: z.object({
+    products: z.array(z.object({ ...productBodyFields, vendorId: z.string().min(1) })).min(1).max(50),
+  }),
 });
 
 export const updateProductSchema = z.object({
